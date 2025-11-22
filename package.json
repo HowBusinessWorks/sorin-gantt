@@ -4,6 +4,7 @@
   "description": "Construction Gantt Chart Dashboard for 2026",
   "main": "index.js",
   "scripts": {
+    "vercel-build": "npm ci && npm run build",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
