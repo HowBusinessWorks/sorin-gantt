@@ -18,19 +18,73 @@ export const templates = {
       shadow: 'shadow-lg',
     }
   },
-  minimal: {
-    name: 'Minimal',
+  neumorphism: {
+    name: 'Neumorphism',
     colors: {
-      headerGradient: 'from-gray-800 via-gray-900 to-black',
+      headerGradient: 'from-gray-100 via-gray-200 to-gray-300',
       monthHeaderGradient: 'from-gray-50 to-gray-100',
       monthHeaderHover: 'from-gray-100 to-gray-150',
+      taskBarDefault: '#E5E7EB',
+      borderColor: 'border-gray-300',
+      gridLine: 'border-gray-200',
+      gridLineLight: 'border-gray-100',
+    },
+    styles: {
+      borderRadius: 'rounded-2xl',
+      fontSize: 'text-xs',
+      fontFamily: 'font-sans',
+      shadow: 'shadow-lg',
+    }
+  },
+  glassmorphism: {
+    name: 'Glassmorphism',
+    colors: {
+      headerGradient: 'from-blue-400 via-blue-500 to-blue-600',
+      monthHeaderGradient: 'from-blue-50 to-blue-100',
+      monthHeaderHover: 'from-blue-100 to-blue-200',
+      taskBarDefault: '#3B82F6',
+      borderColor: 'border-blue-300',
+      gridLine: 'border-blue-200',
+      gridLineLight: 'border-blue-100',
+    },
+    styles: {
+      borderRadius: 'rounded-2xl',
+      fontSize: 'text-xs',
+      fontFamily: 'font-sans',
+      shadow: 'shadow-xl',
+    }
+  },
+  brutalist: {
+    name: 'Brutalist',
+    colors: {
+      headerGradient: 'from-black via-gray-900 to-black',
+      monthHeaderGradient: 'from-gray-900 to-black',
+      monthHeaderHover: 'from-gray-800 to-gray-900',
       taskBarDefault: '#1F2937',
+      borderColor: 'border-white',
+      gridLine: 'border-gray-600',
+      gridLineLight: 'border-gray-700',
+    },
+    styles: {
+      borderRadius: 'rounded-none',
+      fontSize: 'text-xs',
+      fontFamily: 'font-mono',
+      shadow: 'shadow-none',
+    }
+  },
+  monochrome: {
+    name: 'Monochrome',
+    colors: {
+      headerGradient: 'from-gray-600 via-gray-700 to-gray-800',
+      monthHeaderGradient: 'from-gray-200 to-gray-300',
+      monthHeaderHover: 'from-gray-300 to-gray-400',
+      taskBarDefault: '#6B7280',
       borderColor: 'border-gray-500',
       gridLine: 'border-gray-400',
       gridLineLight: 'border-gray-300',
     },
     styles: {
-      borderRadius: 'rounded-none', // No rounding
+      borderRadius: 'rounded-lg',
       fontSize: 'text-xs',
       fontFamily: 'font-sans',
       shadow: 'shadow-md',
