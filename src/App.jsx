@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera } from 'lucide-react';
+import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, Palette } from 'lucide-react';
 import { months, monthsShort, cellWidth, rowHeight, totalMonths, weeksPerMonth, totalWeeks } from './data.js';
 import { getProgressColor, getTotalMonths, getMonthName, getTotalWeeks, monthToWeekStart, monthDurationToWeeks, getWeekOfMonth } from './utils.js';
 import { supabase } from './supabaseClient.js';
 import html2canvas from 'html2canvas';
+import { templates, defaultTemplate } from './templates.js';
 
 function App() {
   // State management
@@ -20,6 +21,12 @@ function App() {
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
   const [showHeader, setShowHeader] = useState(true);
+  const [templateKey, setTemplateKey] = useState(() => {
+    const saved = localStorage.getItem('ganttTemplate');
+    return (saved && templates[saved]) ? saved : defaultTemplate;
+  });
+
+  const currentTemplate = templates[templateKey] || templates[defaultTemplate];
 
   // Refs for synchronized scrolling
   const sidebarRef = useRef(null);
@@ -51,6 +58,7 @@ function App() {
           name: project.name,
           startMonth: project.start_month,
           duration: project.duration,
+          durationWeeks: project.duration_weeks || project.duration * weeksPerMonth, // Duration in weeks
           startWeekOffset: project.start_week_offset || 0, // 0-3 weeks offset at the start
           weekOffset: project.week_offset || 0, // 0-3 weeks offset at the end
           color: project.color || '#3B82F6', // Default blue
@@ -60,6 +68,7 @@ function App() {
             name: stage.name,
             startMonth: stage.start_month,
             duration: stage.duration,
+            durationWeeks: stage.duration_weeks || stage.duration * weeksPerMonth,
             startWeekOffset: stage.start_week_offset || 0,
             weekOffset: stage.week_offset || 0
           }))
@@ -166,6 +175,12 @@ function App() {
     }));
   };
 
+  // Template handler
+  const handleTemplateChange = (newTemplateKey) => {
+    setTemplateKey(newTemplateKey);
+    localStorage.setItem('ganttTemplate', newTemplateKey);
+  };
+
   // Drag handlers for task bars
   const handleBarDragStart = (e, task, edge) => {
     e.preventDefault();
@@ -185,23 +200,20 @@ function App() {
 
       // Use already-rounded values from drag calculation
       let finalStart = draggedTask.startMonth;
-      let finalDuration = draggedTask.duration;
-      let finalWeekOffset = draggedTask.weekOffset || 0;
+      let finalDurationWeeks = draggedTask.durationWeeks || draggedTask.duration * weeksPerMonth;
       let finalStartWeekOffset = draggedTask.startWeekOffset || 0;
 
       // Ensure valid values
       finalStart = Math.max(0, Math.min(11, finalStart));
-      finalDuration = Math.max(1, Math.min(12, finalDuration));
-      finalWeekOffset = Math.max(0, Math.min(3, Math.round(finalWeekOffset)));
+      finalDurationWeeks = Math.max(1, Math.min(48, finalDurationWeeks));
       finalStartWeekOffset = Math.max(0, Math.min(3, Math.round(finalStartWeekOffset)));
 
       const { error: projectError } = await supabase
         .from('projects')
         .update({
           start_month: finalStart,
-          duration: finalDuration,
+          duration_weeks: finalDurationWeeks,
           start_week_offset: finalStartWeekOffset,
-          week_offset: finalWeekOffset,
           updated_at: new Date().toISOString()
         })
         .eq('id', draggedTask.id);
@@ -249,25 +261,21 @@ function App() {
           updatedTask.startWeekOffset = Math.max(0, Math.min(3, newStartWeekOffsetInt));
           updatedTask.weekOffset = originalTask.weekOffset || 0;
         } else if (dragging.edge === 'end') {
-          // Dragging right edge: adjust duration only (don't move start)
+          // Dragging right edge: adjust durationWeeks only (don't move start)
           const totalWeeksOffset = deltaPixels / cellWidth;
           const weeksRounded = Math.round(totalWeeksOffset);
 
-          // Calculate new end position in weeks from start
-          const currentWeekOffset = originalTask.weekOffset || 0;
-          // Total weeks = duration (complete months) * 4 + weekOffset (partial month)
-          const currentEndWeeks = (originalTask.duration * weeksPerMonth) + currentWeekOffset;
-          const newEndWeeks = currentEndWeeks + weeksRounded;
+          // Get current duration in weeks
+          const currentDurationWeeks = originalTask.durationWeeks || originalTask.duration * weeksPerMonth;
+          const newDurationWeeks = currentDurationWeeks + weeksRounded;
 
-          // Convert end weeks back to duration and offset
-          const newDurationMonths = Math.floor(newEndWeeks / weeksPerMonth);
-          const newWeekOffsetValue = newEndWeeks % weeksPerMonth;
+          // Maximum weeks from start to end of year
+          const startWeekPosition = (originalTask.startMonth * weeksPerMonth) + (originalTask.startWeekOffset || 0);
+          const maxWeeks = (12 * weeksPerMonth) - startWeekPosition;
 
-          const maxDuration = 12 - originalTask.startMonth;
-
-          updatedTask.duration = Math.max(1, Math.min(newDurationMonths, maxDuration));
-          updatedTask.weekOffset = Math.max(0, Math.min(3, newWeekOffsetValue));
+          updatedTask.durationWeeks = Math.max(1, Math.min(newDurationWeeks, maxWeeks));
           updatedTask.startMonth = originalTask.startMonth; // Keep start fixed
+          updatedTask.startWeekOffset = originalTask.startWeekOffset || 0;
         }
 
         // Store edge info for debugging
@@ -288,8 +296,7 @@ function App() {
         // Check if task was actually moved
         const hasChanged =
           dragging.task.startMonth !== dragging.originalTask.startMonth ||
-          dragging.task.duration !== dragging.originalTask.duration ||
-          (dragging.task.weekOffset || 0) !== (dragging.originalTask.weekOffset || 0) ||
+          (dragging.task.durationWeeks || dragging.task.duration * weeksPerMonth) !== (dragging.originalTask.durationWeeks || dragging.originalTask.duration * weeksPerMonth) ||
           (dragging.task.startWeekOffset || 0) !== (dragging.originalTask.startWeekOffset || 0);
 
         // Auto-save if changed
@@ -328,6 +335,7 @@ function App() {
           name: editingTask.name,
           start_month: editingTask.startMonth,
           duration: editingTask.duration,
+          duration_weeks: editingTask.durationWeeks || editingTask.duration * weeksPerMonth,
           start_week_offset: editingTask.startWeekOffset || 0,
           week_offset: editingTask.weekOffset || 0,
           progress: editingTask.progress,
@@ -372,6 +380,7 @@ function App() {
               name: s.name,
               start_month: s.startMonth,
               duration: s.duration,
+              duration_weeks: s.durationWeeks || s.duration * weeksPerMonth,
               start_week_offset: s.startWeekOffset || 0,
               week_offset: s.weekOffset || 0
             }))
@@ -388,6 +397,7 @@ function App() {
             name: stage.name,
             start_month: stage.startMonth,
             duration: stage.duration,
+            duration_weeks: stage.durationWeeks || stage.duration * weeksPerMonth,
             start_week_offset: stage.startWeekOffset || 0,
             week_offset: stage.weekOffset || 0
           })
@@ -483,7 +493,7 @@ function App() {
       <div className="flex flex-col flex-1 overflow-y-auto">
         {/* Header */}
         {showHeader && (
-        <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-blue-800 shadow-lg p-3 flex-shrink-0">
+        <div className={`bg-gradient-to-r ${currentTemplate.colors.headerGradient} shadow-lg p-3 flex-shrink-0`}>
         <div className="max-w-full mx-auto flex items-start justify-between">
           <div className="flex-1">
           {/* Error Banner */}
@@ -555,13 +565,39 @@ function App() {
             </div>
           </div>
           </div>
-          <button
-            onClick={handleScreenshot}
-            className="ml-4 px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors flex-shrink-0 flex items-center gap-1"
-            title="Take screenshot"
-          >
-            <Camera className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Template Selector */}
+            <div className="relative group">
+              <button
+                className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors flex-shrink-0 flex items-center gap-1"
+                title="Change template"
+              >
+                <Palette className="h-4 w-4" />
+              </button>
+              <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                {Object.entries(templates).map(([key, template]) => (
+                  <button
+                    key={key}
+                    onClick={() => handleTemplateChange(key)}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors ${
+                      templateKey === key ? 'bg-gray-50 font-semibold text-blue-600' : 'text-gray-700'
+                    } ${key === 'modern' ? 'rounded-t-lg' : ''} ${key === 'minimal' ? 'rounded-b-lg' : ''}`}
+                  >
+                    {template.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Screenshot Button */}
+            <button
+              onClick={handleScreenshot}
+              className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors flex-shrink-0 flex items-center gap-1"
+              title="Take screenshot"
+            >
+              <Camera className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         </div>
         )}
@@ -654,18 +690,21 @@ function App() {
           <div className="flex-1 bg-white overflow-auto" ref={timelineRef}>
             <div style={{ width: totalWeeks * cellWidth }}>
               {/* Timeline Headers */}
-              <div className="bg-white relative z-10">
-                {/* Month Header Row - spans 4 weeks per month */}
-                <div className="h-12 bg-gradient-to-r from-gray-100 to-gray-200 border-b border-gray-300 flex">
+              <div className={`bg-white relative z-10 border-b ${currentTemplate.colors.gridLine}`} style={{ height: 48 }}>
+                {/* Month Header Row - positioned absolutely to match grid lines */}
+                <div className="relative" style={{ width: totalWeeks * cellWidth, height: 48 }}>
                   {months.map((month, monthIndex) => (
                     <div
                       key={`month-${monthIndex}`}
-                      className={`${monthIndex < months.length - 1 ? 'border-r-2 border-gray-400' : ''} flex items-center justify-center font-bold text-gray-700 text-xs bg-gradient-to-b from-blue-50 to-blue-100 hover:from-blue-100 hover:to-blue-200 transition-colors`}
-                      style={{ width: cellWidth * weeksPerMonth, minWidth: cellWidth * weeksPerMonth }}
+                      className={`absolute flex items-center justify-center font-bold text-gray-700 text-xs bg-gradient-to-b ${currentTemplate.colors.monthHeaderGradient} hover:${currentTemplate.colors.monthHeaderHover} transition-colors ${monthIndex < months.length - 1 ? `border-r-2 ${currentTemplate.colors.borderColor}` : ''}`}
+                      style={{
+                        left: monthIndex * cellWidth * weeksPerMonth + 2 + 'px',
+                        width: cellWidth * weeksPerMonth + 'px',
+                        height: 48 + 'px',
+                        boxSizing: 'border-box'
+                      }}
                     >
-                      <div className="text-center">
-                        <div className="font-bold">{month}</div>
-                      </div>
+                      <div className="font-bold">{month}</div>
                     </div>
                   ))}
                 </div>
@@ -686,7 +725,7 @@ function App() {
                       <div
                         key={`week-line-${weekIndex}`}
                         className={`absolute top-0 h-full ${
-                          isMonthStart ? 'border-r-2 border-gray-400' : 'border-r border-gray-200'
+                          isMonthStart ? `border-r-2 ${currentTemplate.colors.borderColor}` : `border-r ${currentTemplate.colors.gridLineLight}`
                         }`}
                         style={{ left: weekIndex * cellWidth }}
                       />
@@ -706,11 +745,11 @@ function App() {
                       >
                         {/* Colorful Task Bar */}
                         <div
-                          className="absolute rounded-lg shadow-lg hover:shadow-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:z-20"
+                          className={`absolute ${currentTemplate.styles.borderRadius} ${currentTemplate.styles.shadow} hover:shadow-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:z-20`}
                           style={{
-                            backgroundColor: task.color || '#3B82F6',
+                            backgroundColor: task.color || currentTemplate.colors.taskBarDefault,
                             left: monthToWeekStart(task.startMonth) * cellWidth + (task.startWeekOffset || 0) * cellWidth + 4,
-                            width: monthDurationToWeeks(task.duration) * cellWidth + (task.weekOffset || 0) * cellWidth - 8,
+                            width: (task.durationWeeks || task.duration * weeksPerMonth) * cellWidth - 8,
                             height: 32,
                             top: '50%',
                             transform: 'translateY(-50%)'
@@ -718,7 +757,7 @@ function App() {
                         >
                           {/* Progress Overlay - Darker overlay */}
                           <div
-                            className="absolute left-0 top-0 h-full rounded-lg"
+                            className={`absolute left-0 top-0 h-full ${currentTemplate.styles.borderRadius}`}
                             style={{
                               width: `${task.progress}%`,
                               backgroundColor: 'rgba(0, 0, 0, 0.3)'
@@ -753,10 +792,10 @@ function App() {
                         >
                           {/* Light Blue Stage Bar */}
                           <div
-                            className="absolute rounded-lg bg-gradient-to-r from-blue-300 to-blue-400 shadow-md hover:shadow-lg transition-all duration-200 hover:scale-105"
+                            className={`absolute ${currentTemplate.styles.borderRadius} bg-gradient-to-r from-blue-300 to-blue-400 shadow-md hover:shadow-lg transition-all duration-200 hover:scale-105`}
                             style={{
                               left: monthToWeekStart(stage.startMonth) * cellWidth + (stage.startWeekOffset || 0) * cellWidth + 4,
-                              width: monthDurationToWeeks(stage.duration) * cellWidth + (stage.weekOffset || 0) * cellWidth - 8,
+                              width: (stage.durationWeeks || stage.duration * weeksPerMonth) * cellWidth - 8,
                               height: 16,
                               top: '50%',
                               transform: 'translateY(-50%)'
@@ -832,17 +871,17 @@ function App() {
                 </select>
               </div>
 
-              {/* Duration */}
+              {/* Duration in Weeks */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Durată (luni)
+                  Durată (săptămâni)
                 </label>
                 <input
                   type="number"
                   min="1"
-                  max="12"
-                  value={editingTask.duration}
-                  onChange={(e) => setEditingTask({ ...editingTask, duration: parseInt(e.target.value) || 1 })}
+                  max="48"
+                  value={editingTask.durationWeeks || 4}
+                  onChange={(e) => setEditingTask({ ...editingTask, durationWeeks: parseInt(e.target.value) || 1 })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
@@ -994,17 +1033,17 @@ function App() {
                         </div>
 
                         <div>
-                          <label className="block text-sm text-gray-600 mb-1">Durată (luni)</label>
+                          <label className="block text-sm text-gray-600 mb-1">Durată (săptămâni)</label>
                           <input
                             type="number"
                             min="1"
-                            max="12"
-                            value={stage.duration}
+                            max="48"
+                            value={stage.durationWeeks || stage.duration * weeksPerMonth}
                             onChange={(e) => {
                               setEditingTask({
                                 ...editingTask,
                                 stages: editingTask.stages.map(s =>
-                                  s.id === stage.id ? { ...s, duration: parseInt(e.target.value) || 1 } : s
+                                  s.id === stage.id ? { ...s, durationWeeks: parseInt(e.target.value) || 1 } : s
                                 )
                               });
                             }}
