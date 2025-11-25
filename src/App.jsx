@@ -21,6 +21,10 @@ function App() {
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
   const [showHeader, setShowHeader] = useState(true);
+  const [draggedProjectId, setDraggedProjectId] = useState(null);
+  const [dragOverProjectId, setDragOverProjectId] = useState(null);
+  const [showAddProjectModal, setShowAddProjectModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
   const [templateKey, setTemplateKey] = useState(() => {
     const saved = localStorage.getItem('ganttTemplate');
     return (saved && templates[saved]) ? saved : defaultTemplate;
@@ -48,7 +52,7 @@ function App() {
             *,
             stages(*)
           `)
-          .order('id', { ascending: true });
+          .order('sort_order', { ascending: true });
 
         if (projectError) throw projectError;
 
@@ -63,6 +67,7 @@ function App() {
           weekOffset: project.week_offset || 0, // 0-3 weeks offset at the end
           color: project.color || '#3B82F6', // Default blue
           progress: project.progress,
+          sortOrder: project.sort_order,
           stages: (project.stages || []).map(stage => ({
             id: stage.id,
             name: stage.name,
@@ -179,6 +184,121 @@ function App() {
   const handleTemplateChange = (newTemplateKey) => {
     setTemplateKey(newTemplateKey);
     localStorage.setItem('ganttTemplate', newTemplateKey);
+  };
+
+  // Add project handler
+  const handleAddProject = async (projectName) => {
+    try {
+      setSavingTask(true);
+      setError(null);
+
+      const newProjectData = {
+        name: projectName,
+        start_month: 0,
+        duration: 1,
+        duration_weeks: 4,
+        progress: 0,
+        color: currentTemplate.colors.taskBarDefault,
+        start_week_offset: 0,
+        week_offset: 0
+      };
+
+      const { data, error: insertError } = await supabase
+        .from('projects')
+        .insert([newProjectData])
+        .select();
+
+      if (insertError) throw insertError;
+
+      // Add the new project to local state
+      if (data && data.length > 0) {
+        const newProject = {
+          id: data[0].id,
+          name: data[0].name,
+          startMonth: data[0].start_month,
+          duration: data[0].duration,
+          durationWeeks: data[0].duration_weeks,
+          startWeekOffset: data[0].start_week_offset || 0,
+          weekOffset: data[0].week_offset || 0,
+          color: data[0].color || currentTemplate.colors.taskBarDefault,
+          progress: data[0].progress,
+          stages: []
+        };
+        setTasks([...tasks, newProject]);
+      }
+    } catch (err) {
+      console.error('Error adding project:', err);
+      setError(err.message || 'Failed to add project');
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  // Delete project handler
+  const handleDeleteProject = async (projectId) => {
+    if (!window.confirm('Are you sure you want to delete this project? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setSavingTask(true);
+      setError(null);
+
+      const { error: deleteError } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId);
+
+      if (deleteError) throw deleteError;
+
+      // Remove from local state
+      setTasks(tasks.filter(t => t.id !== projectId));
+      setSelectedTask(null);
+      setEditingTask(null);
+    } catch (err) {
+      console.error('Error deleting project:', err);
+      setError(err.message || 'Failed to delete project');
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  // Reorder projects handler
+  const handleReorderProjects = async (draggedId, droppedOnId) => {
+    if (draggedId === droppedOnId) return;
+
+    const draggedIndex = tasks.findIndex(t => t.id === draggedId);
+    const droppedIndex = tasks.findIndex(t => t.id === droppedOnId);
+
+    if (draggedIndex === -1 || droppedIndex === -1) return;
+
+    // Create new array with reordered tasks
+    const newTasks = [...tasks];
+    const [removed] = newTasks.splice(draggedIndex, 1);
+    newTasks.splice(droppedIndex, 0, removed);
+
+    // Update local state immediately for smooth UI
+    setTasks(newTasks);
+
+    // Update sort_order values and save to database
+    try {
+      setSavingTask(true);
+      for (let i = 0; i < newTasks.length; i++) {
+        const { error: updateError } = await supabase
+          .from('projects')
+          .update({ sort_order: i })
+          .eq('id', newTasks[i].id);
+
+        if (updateError) throw updateError;
+      }
+    } catch (err) {
+      console.error('Error reordering projects:', err);
+      setError(err.message || 'Failed to reorder projects');
+      // Revert to original order on error
+      setTasks(tasks);
+    } finally {
+      setSavingTask(false);
+    }
   };
 
   // Drag handlers for task bars
@@ -621,8 +741,18 @@ function App() {
           style={{ width: sidebarWidth }}
         >
           {/* Sidebar Header */}
-          <div className="h-12 bg-gray-100 border-b border-gray-200 flex items-center px-4 flex-shrink-0">
+          <div className="h-12 bg-gray-100 border-b border-gray-200 flex items-center justify-between px-4 flex-shrink-0">
             <h3 className="font-semibold text-gray-800 text-sm">Nume Proiect</h3>
+            <button
+              onClick={() => {
+                setShowAddProjectModal(true);
+                setNewProjectName('');
+              }}
+              className="p-1 hover:bg-gray-200 rounded transition-colors"
+              title="Add new project"
+            >
+              <Plus className="h-4 w-4 text-gray-600" />
+            </button>
           </div>
 
           {/* Task Rows */}
@@ -638,7 +768,24 @@ function App() {
                 <div key={task.id}>
                   {/* Main Task Row */}
                   <div
-                    className="flex items-center px-3 border-b border-gray-100 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 cursor-pointer transition-all duration-200 hover:shadow-sm"
+                    draggable
+                    onDragStart={() => setDraggedProjectId(task.id)}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverProjectId(task.id);
+                    }}
+                    onDragLeave={() => setDragOverProjectId(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggedProjectId && draggedProjectId !== task.id) {
+                        handleReorderProjects(draggedProjectId, task.id);
+                      }
+                      setDraggedProjectId(null);
+                      setDragOverProjectId(null);
+                    }}
+                    className={`group flex items-center px-3 border-b border-gray-100 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 cursor-move transition-all duration-200 hover:shadow-sm ${
+                      dragOverProjectId === task.id ? 'bg-blue-100 border-blue-300' : ''
+                    } ${draggedProjectId === task.id ? 'opacity-50' : ''}`}
                     onClick={() => handleTaskClick(task)}
                     style={{ height: rowHeight }}
                   >
@@ -659,6 +806,16 @@ function App() {
                     <div className="flex-1">
                       <div className="text-xs font-medium text-gray-800 break-words">{task.name}</div>
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteProject(task.id);
+                      }}
+                      className="ml-2 p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition-all"
+                      title="Delete project"
+                    >
+                      <X className="h-4 w-4 text-red-500" />
+                    </button>
                   </div>
 
                   {/* Stage Rows */}
@@ -745,7 +902,7 @@ function App() {
                       >
                         {/* Colorful Task Bar */}
                         <div
-                          className={`absolute ${currentTemplate.styles.borderRadius} ${currentTemplate.styles.shadow} hover:shadow-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:z-20`}
+                          className={`absolute ${currentTemplate.styles.borderRadius} ${currentTemplate.styles.shadow} hover:shadow-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:z-20 border-2 border-gray-700`}
                           style={{
                             backgroundColor: task.color || currentTemplate.colors.taskBarDefault,
                             left: monthToWeekStart(task.startMonth) * cellWidth + (task.startWeekOffset || 0) * cellWidth + 4,
@@ -1122,7 +1279,96 @@ function App() {
                 >
                   Anulează
                 </button>
+                <button
+                  onClick={() => {
+                    handleDeleteProject(editingTask.id);
+                  }}
+                  disabled={savingTask}
+                  className="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  title="Delete project"
+                >
+                  <X className="h-4 w-4" />
+                  Șterge
+                </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Project Modal */}
+      {showAddProjectModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-md w-full mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-gray-800">Adaugă Proiect Nou</h2>
+                <button
+                  onClick={() => {
+                    setShowAddProjectModal(false);
+                    setNewProjectName('');
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nume Proiect
+                </label>
+                <input
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && newProjectName.trim()) {
+                      handleAddProject(newProjectName.trim());
+                      setShowAddProjectModal(false);
+                      setNewProjectName('');
+                    }
+                  }}
+                  placeholder="Introduceți numele proiectului..."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  if (newProjectName.trim()) {
+                    handleAddProject(newProjectName.trim());
+                    setShowAddProjectModal(false);
+                    setNewProjectName('');
+                  }
+                }}
+                disabled={savingTask || !newProjectName.trim()}
+                className="flex-1 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {savingTask ? (
+                  <>
+                    <Loader className="h-4 w-4 animate-spin" />
+                    Se adaugă...
+                  </>
+                ) : (
+                  'Adaugă'
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddProjectModal(false);
+                  setNewProjectName('');
+                }}
+                disabled={savingTask}
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Anulează
+              </button>
             </div>
           </div>
         </div>
