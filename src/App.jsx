@@ -756,7 +756,7 @@ function App() {
           </div>
 
           {/* Task Rows */}
-          <div className="overflow-y-auto sidebar-scroll flex-1">
+          <div className="overflow-y-auto sidebar-scroll flex-1 px-0">
             {!loading && filteredTasks.length === 0 ? (
               <div className="p-4 text-center text-gray-500">
                 {searchTerm || dateFilter.startMonth !== 0 || dateFilter.endMonth !== 11
@@ -788,8 +788,7 @@ function App() {
                     } ${draggedProjectId === task.id ? 'opacity-50' : ''}`}
                     onClick={() => handleTaskClick(task)}
                     style={{
-                      height: rowHeight - 6,
-                      marginBottom: '6px',
+                      height: rowHeight,
                       borderColor: task.color || currentTemplate.colors.taskBarDefault,
                       borderWidth: '1.5px'
                     }}

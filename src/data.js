@@ -42,7 +42,7 @@ export const monthsShort = ['Ian', 'Feb', 'Mar', 'Apr', 'Mai', 'Iun', 'Iul', 'Au
 
 // Constants for weekly view (4 weeks per month)
 export const cellWidth = 28; // 30px per week
-export const rowHeight = 48; // Height accounting for padding
+export const rowHeight = 40; // Height accounting for padding
 export const totalMonths = 12;
 export const weeksPerMonth = 4;
 export const totalWeeks = totalMonths * weeksPerMonth; // 48 weeks
