@@ -38,3 +38,25 @@ export const monthDurationToWeeks = (duration) => {
 export const getWeekOfMonth = (weekIndex) => {
   return (weekIndex % weeksPerMonth) + 1;
 };
+
+// Helper function to darken a hex color
+export const darkenColor = (hexColor, percent = 0.4) => {
+  // Remove # if present
+  const hex = hexColor.replace('#', '');
+
+  // Parse hex to RGB
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+
+  // Darken by reducing RGB values
+  const darkR = Math.max(0, Math.floor(r * (1 - percent)));
+  const darkG = Math.max(0, Math.floor(g * (1 - percent)));
+  const darkB = Math.max(0, Math.floor(b * (1 - percent)));
+
+  // Convert back to hex
+  return '#' + [darkR, darkG, darkB].map(x => {
+    const hex = x.toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+};

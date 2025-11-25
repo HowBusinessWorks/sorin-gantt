@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, Palette } from 'lucide-react';
 import { months, monthsShort, cellWidth, rowHeight, totalMonths, weeksPerMonth, totalWeeks } from './data.js';
-import { getProgressColor, getTotalMonths, getMonthName, getTotalWeeks, monthToWeekStart, monthDurationToWeeks, getWeekOfMonth } from './utils.js';
+import { getProgressColor, getTotalMonths, getMonthName, getTotalWeeks, monthToWeekStart, monthDurationToWeeks, getWeekOfMonth, darkenColor } from './utils.js';
 import { supabase } from './supabaseClient.js';
 import html2canvas from 'html2canvas';
 import { templates, defaultTemplate } from './templates.js';
@@ -902,9 +902,10 @@ function App() {
                       >
                         {/* Colorful Task Bar */}
                         <div
-                          className={`absolute ${currentTemplate.styles.borderRadius} ${currentTemplate.styles.shadow} hover:shadow-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:z-20 border-2 border-gray-700`}
+                          className={`absolute ${currentTemplate.styles.borderRadius} ${currentTemplate.styles.shadow} hover:shadow-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:z-20 border-2 border-opacity-60`}
                           style={{
                             backgroundColor: task.color || currentTemplate.colors.taskBarDefault,
+                            borderColor: darkenColor(task.color || currentTemplate.colors.taskBarDefault, 0.35),
                             left: monthToWeekStart(task.startMonth) * cellWidth + (task.startWeekOffset || 0) * cellWidth + 4,
                             width: (task.durationWeeks || task.duration * weeksPerMonth) * cellWidth - 8,
                             height: 32,
