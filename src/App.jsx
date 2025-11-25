@@ -783,13 +783,15 @@ function App() {
                       setDraggedProjectId(null);
                       setDragOverProjectId(null);
                     }}
-                    className={`group flex items-center px-3 border-l-4 border-b-2 border-gray-200 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 cursor-move transition-all duration-200 hover:shadow-sm ${
-                      dragOverProjectId === task.id ? 'bg-blue-100 border-blue-300' : ''
+                    className={`group flex items-center px-3 border rounded hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 cursor-move transition-all duration-200 hover:shadow-sm ${
+                      dragOverProjectId === task.id ? 'bg-blue-100' : ''
                     } ${draggedProjectId === task.id ? 'opacity-50' : ''}`}
                     onClick={() => handleTaskClick(task)}
                     style={{
-                      height: rowHeight,
-                      borderLeftColor: task.color || currentTemplate.colors.taskBarDefault
+                      height: rowHeight - 6,
+                      marginBottom: '6px',
+                      borderColor: task.color || currentTemplate.colors.taskBarDefault,
+                      borderWidth: '1.5px'
                     }}
                   >
                     {task.stages.length > 0 && (
@@ -900,8 +902,8 @@ function App() {
                     <div key={task.id}>
                       {/* Main Task Row */}
                       <div
-                        className="border-b border-gray-200 relative"
-                        style={{ height: rowHeight }}
+                        className="border-b border-gray-200 relative flex items-center"
+                        style={{ height: rowHeight, paddingTop: '8px', paddingBottom: '8px' }}
                       >
                         {/* Colorful Task Bar */}
                         <div
