@@ -905,10 +905,9 @@ function App() {
                       >
                         {/* Colorful Task Bar */}
                         <div
-                          className={`absolute ${currentTemplate.styles.borderRadius} ${currentTemplate.styles.shadow} hover:shadow-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:z-20 border-2 border-opacity-60`}
+                          className={`absolute ${currentTemplate.styles.borderRadius} ${currentTemplate.styles.shadow} hover:shadow-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:z-20`}
                           style={{
                             backgroundColor: task.color || currentTemplate.colors.taskBarDefault,
-                            borderColor: darkenColor(task.color || currentTemplate.colors.taskBarDefault, 0.35),
                             left: monthToWeekStart(task.startMonth) * cellWidth + (task.startWeekOffset || 0) * cellWidth + 4,
                             width: (task.durationWeeks || task.duration * weeksPerMonth) * cellWidth - 8,
                             height: 32,
