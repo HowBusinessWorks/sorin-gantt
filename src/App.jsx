@@ -783,11 +783,14 @@ function App() {
                       setDraggedProjectId(null);
                       setDragOverProjectId(null);
                     }}
-                    className={`group flex items-center px-3 border-b border-gray-100 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 cursor-move transition-all duration-200 hover:shadow-sm ${
+                    className={`group flex items-center px-3 border-l-4 border-b-2 border-gray-200 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 cursor-move transition-all duration-200 hover:shadow-sm ${
                       dragOverProjectId === task.id ? 'bg-blue-100 border-blue-300' : ''
                     } ${draggedProjectId === task.id ? 'opacity-50' : ''}`}
                     onClick={() => handleTaskClick(task)}
-                    style={{ height: rowHeight }}
+                    style={{
+                      height: rowHeight,
+                      borderLeftColor: task.color || currentTemplate.colors.taskBarDefault
+                    }}
                   >
                     {task.stages.length > 0 && (
                       <button
@@ -803,8 +806,8 @@ function App() {
                         }
                       </button>
                     )}
-                    <div className="flex-1">
-                      <div className="text-xs font-medium text-gray-800 break-words">{task.name}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-800 truncate">{task.name}</div>
                     </div>
                     <button
                       onClick={(e) => {
