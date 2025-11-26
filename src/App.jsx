@@ -45,6 +45,14 @@ function App() {
   const [savingContract, setSavingContract] = useState(false);
   const [savingYear, setSavingYear] = useState(false);
 
+  // Delete confirmation modals
+  const [showDeleteContractModal, setShowDeleteContractModal] = useState(false);
+  const [contractToDelete, setContractToDelete] = useState(null);
+  const [deleteContractConfirmName, setDeleteContractConfirmName] = useState('');
+  const [showDeleteYearModal, setShowDeleteYearModal] = useState(false);
+  const [yearToDelete, setYearToDelete] = useState(null);
+  const [deleteYearConfirmYear, setDeleteYearConfirmYear] = useState('');
+
   const currentTemplate = templates[templateKey] || templates[defaultTemplate];
 
   // Refs for synchronized scrolling
@@ -273,8 +281,14 @@ function App() {
     }
   };
 
-  const handleDeleteContract = async (contractId) => {
-    if (!window.confirm('Sunteți sigur că doriți să ștergeți acest contract? Toate anii și proiectele asociate vor fi șterse.')) {
+  const handleDeleteContractClick = (contract) => {
+    setContractToDelete(contract);
+    setDeleteContractConfirmName('');
+    setShowDeleteContractModal(true);
+  };
+
+  const handleConfirmDeleteContract = async () => {
+    if (deleteContractConfirmName !== contractToDelete?.name) {
       return;
     }
 
@@ -282,15 +296,17 @@ function App() {
       const { error } = await supabase
         .from('contracts')
         .delete()
-        .eq('id', contractId);
+        .eq('id', contractToDelete.id);
 
       if (error) throw error;
 
-      setContracts(contracts.filter(c => c.id !== contractId));
-      if (selectedContract?.id === contractId) {
+      setContracts(contracts.filter(c => c.id !== contractToDelete.id));
+      if (selectedContract?.id === contractToDelete.id) {
         setSelectedContract(null);
         setSelectedYear(null);
       }
+      setShowDeleteContractModal(false);
+      setContractToDelete(null);
     } catch (err) {
       console.error('Error deleting contract:', err);
       setError('Eroare la ștergerea contractului');
@@ -320,8 +336,14 @@ function App() {
     }
   };
 
-  const handleDeleteYear = async (yearId) => {
-    if (!window.confirm('Sunteți sigur că doriți să ștergeți acest an? Toate proiectele asociate vor fi șterse.')) {
+  const handleDeleteYearClick = (year) => {
+    setYearToDelete(year);
+    setDeleteYearConfirmYear('');
+    setShowDeleteYearModal(true);
+  };
+
+  const handleConfirmDeleteYear = async () => {
+    if (deleteYearConfirmYear !== String(yearToDelete?.year)) {
       return;
     }
 
@@ -329,14 +351,16 @@ function App() {
       const { error } = await supabase
         .from('years')
         .delete()
-        .eq('id', yearId);
+        .eq('id', yearToDelete.id);
 
       if (error) throw error;
 
-      setYears(years.filter(y => y.id !== yearId));
-      if (selectedYear?.id === yearId) {
+      setYears(years.filter(y => y.id !== yearToDelete.id));
+      if (selectedYear?.id === yearToDelete.id) {
         setSelectedYear(null);
       }
+      setShowDeleteYearModal(false);
+      setYearToDelete(null);
     } catch (err) {
       console.error('Error deleting year:', err);
       setError('Eroare la ștergerea anului');
@@ -822,7 +846,7 @@ function App() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteContract(contract.id);
+                          handleDeleteContractClick(contract);
                         }}
                         className="absolute top-2 right-2 p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition-all"
                         title="Delete contract"
@@ -858,7 +882,7 @@ function App() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDeleteYear(year.id);
+                              handleDeleteYearClick(year);
                             }}
                             className="absolute top-2 right-2 p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition-all"
                             title="Delete year"
@@ -962,6 +986,124 @@ function App() {
               >
                 {savingYear && <Loader className="h-4 w-4 animate-spin" />}
                 Adaugă
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Contract Modal */}
+      {showDeleteContractModal && contractToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-red-600">Șterge Contract</h2>
+              <button
+                onClick={() => {
+                  setShowDeleteContractModal(false);
+                  setContractToDelete(null);
+                  setDeleteContractConfirmName('');
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-gray-700 mb-4">
+                Sunteți sigur că doriți să ștergeți contractul <strong>{contractToDelete.name}</strong>?
+                <br /><br />
+                <span className="text-red-600 font-semibold">ATENȚIE: Aceasta va șterge toți anii și proiectele asociate. Această acțiune nu poate fi anulată.</span>
+              </p>
+              <p className="text-sm text-gray-600 mb-4">Pentru a confirma, tastați numele contractului:</p>
+              <input
+                type="text"
+                placeholder={contractToDelete.name}
+                value={deleteContractConfirmName}
+                onChange={(e) => setDeleteContractConfirmName(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && deleteContractConfirmName === contractToDelete.name && handleConfirmDeleteContract()}
+                autoFocus
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowDeleteContractModal(false);
+                  setContractToDelete(null);
+                  setDeleteContractConfirmName('');
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Anulează
+              </button>
+              <button
+                onClick={handleConfirmDeleteContract}
+                disabled={deleteContractConfirmName !== contractToDelete.name}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Șterge Contract
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Year Modal */}
+      {showDeleteYearModal && yearToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-red-600">Șterge An</h2>
+              <button
+                onClick={() => {
+                  setShowDeleteYearModal(false);
+                  setYearToDelete(null);
+                  setDeleteYearConfirmYear('');
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-gray-700 mb-4">
+                Sunteți sigur că doriți să ștergeți anul <strong>{yearToDelete.year}</strong>?
+                <br /><br />
+                <span className="text-red-600 font-semibold">ATENȚIE: Aceasta va șterge toate proiectele din acest an. Această acțiune nu poate fi anulată.</span>
+              </p>
+              <p className="text-sm text-gray-600 mb-4">Pentru a confirma, tastați anul:</p>
+              <input
+                type="text"
+                placeholder={String(yearToDelete.year)}
+                value={deleteYearConfirmYear}
+                onChange={(e) => setDeleteYearConfirmYear(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && deleteYearConfirmYear === String(yearToDelete.year) && handleConfirmDeleteYear()}
+                autoFocus
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowDeleteYearModal(false);
+                  setYearToDelete(null);
+                  setDeleteYearConfirmYear('');
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Anulează
+              </button>
+              <button
+                onClick={handleConfirmDeleteYear}
+                disabled={deleteYearConfirmYear !== String(yearToDelete.year)}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Șterge An
               </button>
             </div>
           </div>
