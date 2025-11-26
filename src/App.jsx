@@ -30,6 +30,21 @@ function App() {
     return (saved && templates[saved]) ? saved : defaultTemplate;
   });
 
+  // Contract and Year selection
+  const [contracts, setContracts] = useState([]);
+  const [selectedContract, setSelectedContract] = useState(null);
+  const [years, setYears] = useState([]);
+  const [selectedYear, setSelectedYear] = useState(null);
+  const [loadingContracts, setLoadingContracts] = useState(true);
+
+  // Add/Delete modals
+  const [showAddContractModal, setShowAddContractModal] = useState(false);
+  const [newContractName, setNewContractName] = useState('');
+  const [showAddYearModal, setShowAddYearModal] = useState(false);
+  const [newYear, setNewYear] = useState(2025);
+  const [savingContract, setSavingContract] = useState(false);
+  const [savingYear, setSavingYear] = useState(false);
+
   const currentTemplate = templates[templateKey] || templates[defaultTemplate];
 
   // Refs for synchronized scrolling
@@ -39,9 +54,61 @@ function App() {
 
   const totalMonthsCount = getTotalMonths();
 
-  // Fetch projects from Supabase on mount
+  // Fetch contracts on mount
+  useEffect(() => {
+    const fetchContracts = async () => {
+      try {
+        setLoadingContracts(true);
+        const { data: contractsData, error: contractError } = await supabase
+          .from('contracts')
+          .select('*')
+          .order('name', { ascending: true });
+
+        if (contractError) throw contractError;
+        setContracts(contractsData || []);
+      } catch (err) {
+        console.error('Error fetching contracts:', err);
+      } finally {
+        setLoadingContracts(false);
+      }
+    };
+
+    fetchContracts();
+  }, []);
+
+  // Fetch years when contract is selected
+  useEffect(() => {
+    const fetchYears = async () => {
+      if (!selectedContract) {
+        setYears([]);
+        return;
+      }
+
+      try {
+        const { data: yearsData, error: yearsError } = await supabase
+          .from('years')
+          .select('*')
+          .eq('contract_id', selectedContract.id)
+          .order('year', { ascending: true });
+
+        if (yearsError) throw yearsError;
+        setYears(yearsData || []);
+      } catch (err) {
+        console.error('Error fetching years:', err);
+      }
+    };
+
+    fetchYears();
+  }, [selectedContract]);
+
+  // Fetch projects from Supabase when contract and year are selected
   useEffect(() => {
     const fetchProjects = async () => {
+      if (!selectedContract || !selectedYear) {
+        setTasks([]);
+        return;
+      }
+
       try {
         setLoading(true);
         setError(null);
@@ -52,6 +119,8 @@ function App() {
             *,
             stages(*)
           `)
+          .eq('contract_id', selectedContract.id)
+          .eq('year_id', selectedYear.id)
           .order('sort_order', { ascending: true });
 
         if (projectError) throw projectError;
@@ -89,7 +158,7 @@ function App() {
     };
 
     fetchProjects();
-  }, []);
+  }, [selectedContract, selectedYear]);
 
   // Computed values
   const filteredTasks = tasks.filter(task => {
@@ -178,6 +247,100 @@ function App() {
       ...prev,
       [taskId]: !prev[taskId]
     }));
+  };
+
+  // Contract handlers
+  const handleAddContract = async () => {
+    if (!newContractName.trim()) return;
+
+    try {
+      setSavingContract(true);
+      const { data, error } = await supabase
+        .from('contracts')
+        .insert([{ name: newContractName }])
+        .select();
+
+      if (error) throw error;
+
+      setContracts([...contracts, data[0]]);
+      setNewContractName('');
+      setShowAddContractModal(false);
+    } catch (err) {
+      console.error('Error adding contract:', err);
+      setError('Eroare la adăugarea contractului');
+    } finally {
+      setSavingContract(false);
+    }
+  };
+
+  const handleDeleteContract = async (contractId) => {
+    if (!window.confirm('Sunteți sigur că doriți să ștergeți acest contract? Toate anii și proiectele asociate vor fi șterse.')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('contracts')
+        .delete()
+        .eq('id', contractId);
+
+      if (error) throw error;
+
+      setContracts(contracts.filter(c => c.id !== contractId));
+      if (selectedContract?.id === contractId) {
+        setSelectedContract(null);
+        setSelectedYear(null);
+      }
+    } catch (err) {
+      console.error('Error deleting contract:', err);
+      setError('Eroare la ștergerea contractului');
+    }
+  };
+
+  // Year handlers
+  const handleAddYear = async () => {
+    if (!selectedContract) return;
+
+    try {
+      setSavingYear(true);
+      const { data, error } = await supabase
+        .from('years')
+        .insert([{ contract_id: selectedContract.id, year: newYear }])
+        .select();
+
+      if (error) throw error;
+
+      setYears([...years, data[0]]);
+      setShowAddYearModal(false);
+    } catch (err) {
+      console.error('Error adding year:', err);
+      setError('Eroare la adăugarea anului');
+    } finally {
+      setSavingYear(false);
+    }
+  };
+
+  const handleDeleteYear = async (yearId) => {
+    if (!window.confirm('Sunteți sigur că doriți să ștergeți acest an? Toate proiectele asociate vor fi șterse.')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('years')
+        .delete()
+        .eq('id', yearId);
+
+      if (error) throw error;
+
+      setYears(years.filter(y => y.id !== yearId));
+      if (selectedYear?.id === yearId) {
+        setSelectedYear(null);
+      }
+    } catch (err) {
+      console.error('Error deleting year:', err);
+      setError('Eroare la ștergerea anului');
+    }
   };
 
   // Template handler
@@ -607,6 +770,207 @@ function App() {
     }
   };
 
+  // Show contract selection screen if no contract or year is selected
+  if (!selectedContract || !selectedYear) {
+    return (
+      <>
+      <div className="flex flex-col h-screen bg-gray-50">
+        <div className={`bg-gradient-to-r ${currentTemplate.colors.headerGradient} shadow-lg p-6 flex-shrink-0`}>
+          <h1 className="text-3xl font-bold text-white">Gantt Chart - Selectare Contract și An</h1>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-8">
+          <div className="max-w-4xl mx-auto">
+            {loadingContracts ? (
+              <div className="flex items-center justify-center h-64">
+                <Loader className="h-8 w-8 animate-spin text-blue-500" />
+              </div>
+            ) : contracts.length === 0 ? (
+              <div className="text-center text-gray-500 h-64 flex items-center justify-center">
+                <p>Nu sunt contracte disponibile</p>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-gray-800">Selectează Contract</h2>
+                  <button
+                    onClick={() => setShowAddContractModal(true)}
+                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Adaugă Contract
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {contracts.map(contract => (
+                    <div
+                      key={contract.id}
+                      className="group relative p-6 bg-white border-2 border-gray-300 rounded-lg cursor-pointer hover:shadow-lg hover:border-blue-500 transition-all duration-200"
+                    >
+                      <div
+                        onClick={() => {
+                          setSelectedContract(contract);
+                          setSelectedYear(null);
+                        }}
+                      >
+                        <h3 className="text-lg font-bold text-gray-800">{contract.name}</h3>
+                        {contract.description && (
+                          <p className="text-gray-600 mt-2 text-sm">{contract.description}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteContract(contract.id);
+                        }}
+                        className="absolute top-2 right-2 p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition-all"
+                        title="Delete contract"
+                      >
+                        <X className="h-4 w-4 text-red-500" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {selectedContract && (
+                  <div className="mt-12 pt-8 border-t-2 border-gray-200">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-2xl font-bold text-gray-800">Selectează An pentru {selectedContract.name}</h2>
+                      <button
+                        onClick={() => setShowAddYearModal(true)}
+                        className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Adaugă An
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {years.map(year => (
+                        <div
+                          key={year.id}
+                          className="group relative p-6 bg-white border-2 border-gray-300 rounded-lg cursor-pointer hover:shadow-lg hover:border-green-500 transition-all duration-200"
+                        >
+                          <div onClick={() => setSelectedYear(year)}>
+                            <h3 className="text-xl font-bold text-gray-800">Anul {year.year}</h3>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteYear(year.id);
+                            }}
+                            className="absolute top-2 right-2 p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition-all"
+                            title="Delete year"
+                          >
+                            <X className="h-4 w-4 text-red-500" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Add Contract Modal */}
+      {showAddContractModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-800">Adaugă Contract Nou</h2>
+              <button
+                onClick={() => setShowAddContractModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <input
+              type="text"
+              placeholder="Nume contract"
+              value={newContractName}
+              onChange={(e) => setNewContractName(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleAddContract()}
+              autoFocus
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4"
+            />
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowAddContractModal(false)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Anulează
+              </button>
+              <button
+                onClick={handleAddContract}
+                disabled={!newContractName.trim() || savingContract}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {savingContract && <Loader className="h-4 w-4 animate-spin" />}
+                Adaugă
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Year Modal */}
+      {showAddYearModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-800">Adaugă An Nou</h2>
+              <button
+                onClick={() => setShowAddYearModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">An</label>
+              <input
+                type="number"
+                min="2020"
+                max="2050"
+                value={newYear}
+                onChange={(e) => setNewYear(parseInt(e.target.value))}
+                onKeyPress={(e) => e.key === 'Enter' && handleAddYear()}
+                autoFocus
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowAddYearModal(false)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Anulează
+              </button>
+              <button
+                onClick={handleAddYear}
+                disabled={savingYear}
+                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {savingYear && <Loader className="h-4 w-4 animate-spin" />}
+                Adaugă
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Scrollable container with header and content */}
@@ -640,8 +1004,23 @@ function App() {
 
           {/* Header Row: Title + Search + Filters */}
           <div className="flex items-center gap-3">
-            {/* Title */}
-            <h1 className="text-xl font-bold text-white drop-shadow-lg whitespace-nowrap">🏗️ Diagrama Gantt 2026</h1>
+            {/* Back Button */}
+            <button
+              onClick={() => {
+                setSelectedContract(null);
+                setSelectedYear(null);
+              }}
+              className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors"
+            >
+              ← Înapoi
+            </button>
+
+            {/* Title with Breadcrumbs */}
+            <div className="flex items-center gap-1 text-white/80 text-sm">
+              <span className="font-medium">{selectedContract?.name}</span>
+              <span>•</span>
+              <span className="font-medium">Anul {selectedYear?.year}</span>
+            </div>
 
             {/* Search Bar */}
             <div className="relative flex-1 max-w-xs">
