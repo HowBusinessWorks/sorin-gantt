@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, Palette, MoreVertical } from 'lucide-react';
+import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, MoreVertical } from 'lucide-react';
 import { months, monthsShort, cellWidth, rowHeight, totalMonths, weeksPerMonth, totalWeeks } from './data.js';
 import { getProgressColor, getTotalMonths, getMonthName, getTotalWeeks, monthToWeekStart, monthDurationToWeeks, getWeekOfMonth, darkenColor } from './utils.js';
 import { supabase } from './supabaseClient.js';
@@ -433,12 +433,6 @@ function App() {
     }
   };
 
-  // Template handler
-  const handleTemplateChange = (newTemplateKey) => {
-    setTemplateKey(newTemplateKey);
-    localStorage.setItem('ganttTemplate', newTemplateKey);
-  };
-
   // Add project handler
   const handleAddProject = async (projectName) => {
     try {
@@ -866,8 +860,7 @@ function App() {
         scale: 2, // Higher scale for better quality
         logging: false,
         windowWidth: totalWidth,
-        windowHeight: height,
-        useCORS: true
+        windowHeight: height
       });
 
       // Restore original styles
@@ -1354,9 +1347,10 @@ function App() {
                   isHeaderChangeRef.current = true;
                   setSelectedContract(contract);
                 }}
-                className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors border border-white/30 focus:outline-none focus:ring-2 focus:ring-white/50"
+                className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors border border-white/30 focus:outline-none focus:ring-2 focus:ring-white/50 w-40 truncate"
+                title={selectedContract?.name}
               >
-                <option value="">Selectează contract...</option>
+                <option value="">Contract...</option>
                 {contracts.map(contract => (
                   <option key={contract.id} value={contract.id}>
                     {contract.name}
@@ -1373,12 +1367,12 @@ function App() {
                   setSelectedYear(year);
                 }}
                 disabled={!selectedContract}
-                className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors border border-white/30 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors border border-white/30 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50 disabled:cursor-not-allowed w-28"
               >
-                <option value="">Selectează an...</option>
+                <option value="">Year...</option>
                 {years.map(year => (
                   <option key={year.id} value={year.id}>
-                    Anul {year.year}
+                    {year.year}
                   </option>
                 ))}
               </select>
@@ -1427,29 +1421,6 @@ function App() {
           </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Template Selector */}
-            <div className="relative group">
-              <button
-                className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors flex-shrink-0 flex items-center gap-1"
-                title="Change template"
-              >
-                <Palette className="h-4 w-4" />
-              </button>
-              <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-                {Object.entries(templates).map(([key, template]) => (
-                  <button
-                    key={key}
-                    onClick={() => handleTemplateChange(key)}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors ${
-                      templateKey === key ? 'bg-gray-50 font-semibold text-blue-600' : 'text-gray-700'
-                    } ${key === 'modern' ? 'rounded-t-lg' : ''} ${key === 'minimal' ? 'rounded-b-lg' : ''}`}
-                  >
-                    {template.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Screenshot Button */}
             <button
               onClick={handleScreenshot}
