@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, Palette } from 'lucide-react';
+import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, Palette, MoreVertical } from 'lucide-react';
 import { months, monthsShort, cellWidth, rowHeight, totalMonths, weeksPerMonth, totalWeeks } from './data.js';
 import { getProgressColor, getTotalMonths, getMonthName, getTotalWeeks, monthToWeekStart, monthDurationToWeeks, getWeekOfMonth, darkenColor } from './utils.js';
 import { supabase } from './supabaseClient.js';
@@ -53,12 +53,26 @@ function App() {
   const [yearToDelete, setYearToDelete] = useState(null);
   const [deleteYearConfirmYear, setDeleteYearConfirmYear] = useState('');
 
+  // Edit contract modal
+  const [showEditContractModal, setShowEditContractModal] = useState(false);
+  const [contractToEdit, setContractToEdit] = useState(null);
+  const [editContractName, setEditContractName] = useState('');
+  const [savingEditContract, setSavingEditContract] = useState(false);
+
+  // Menu visibility
+  const [openMenuId, setOpenMenuId] = useState(null);
+
+  // Google Drive link modal
+  const [showGoogleDriveLinkModal, setShowGoogleDriveLinkModal] = useState(false);
+  const [googleDriveLink, setGoogleDriveLink] = useState('');
+
   const currentTemplate = templates[templateKey] || templates[defaultTemplate];
 
   // Refs for synchronized scrolling
   const sidebarRef = useRef(null);
   const timelineRef = useRef(null);
   const chartContainerRef = useRef(null);
+  const isHeaderChangeRef = useRef(false);
 
   const totalMonthsCount = getTotalMonths();
 
@@ -101,6 +115,14 @@ function App() {
 
         if (yearsError) throw yearsError;
         setYears(yearsData || []);
+
+        // Auto-select the first year only if switching contracts from the header
+        if (isHeaderChangeRef.current && yearsData && yearsData.length > 0) {
+          setSelectedYear(yearsData[0]);
+          isHeaderChangeRef.current = false;
+        } else {
+          setSelectedYear(null);
+        }
       } catch (err) {
         console.error('Error fetching years:', err);
       }
@@ -288,7 +310,7 @@ function App() {
   };
 
   const handleConfirmDeleteContract = async () => {
-    if (deleteContractConfirmName !== contractToDelete?.name) {
+    if (deleteContractConfirmName !== 'delete') {
       return;
     }
 
@@ -307,9 +329,52 @@ function App() {
       }
       setShowDeleteContractModal(false);
       setContractToDelete(null);
+      setDeleteContractConfirmName('');
     } catch (err) {
       console.error('Error deleting contract:', err);
       setError('Eroare la ștergerea contractului');
+    }
+  };
+
+  const handleEditContractClick = (contract) => {
+    setContractToEdit(contract);
+    setEditContractName(contract.name);
+    setShowEditContractModal(true);
+    setOpenMenuId(null);
+  };
+
+  const handleSaveEditContract = async () => {
+    if (!editContractName.trim()) {
+      setError('Numele contractului nu poate fi gol');
+      return;
+    }
+
+    try {
+      setSavingEditContract(true);
+      const { error } = await supabase
+        .from('contracts')
+        .update({ name: editContractName })
+        .eq('id', contractToEdit.id);
+
+      if (error) throw error;
+
+      const updatedContracts = contracts.map(c =>
+        c.id === contractToEdit.id ? { ...c, name: editContractName } : c
+      );
+      setContracts(updatedContracts);
+
+      if (selectedContract?.id === contractToEdit.id) {
+        setSelectedContract({ ...selectedContract, name: editContractName });
+      }
+
+      setShowEditContractModal(false);
+      setContractToEdit(null);
+      setEditContractName('');
+    } catch (err) {
+      console.error('Error updating contract:', err);
+      setError('Eroare la actualizarea contractului');
+    } finally {
+      setSavingEditContract(false);
     }
   };
 
@@ -343,7 +408,7 @@ function App() {
   };
 
   const handleConfirmDeleteYear = async () => {
-    if (deleteYearConfirmYear !== String(yearToDelete?.year)) {
+    if (deleteYearConfirmYear !== 'delete') {
       return;
     }
 
@@ -361,6 +426,7 @@ function App() {
       }
       setShowDeleteYearModal(false);
       setYearToDelete(null);
+      setDeleteYearConfirmYear('');
     } catch (err) {
       console.error('Error deleting year:', err);
       setError('Eroare la ștergerea anului');
@@ -647,6 +713,7 @@ function App() {
           week_offset: editingTask.weekOffset || 0,
           progress: editingTask.progress,
           color: editingTask.color || '#3B82F6',
+          google_drive_link: editingTask.google_drive_link || null,
           updated_at: new Date().toISOString()
         })
         .eq('id', editingTask.id);
@@ -742,17 +809,51 @@ function App() {
 
     try {
       const element = chartContainerRef.current;
-      const width = element.scrollWidth;
-      const height = element.scrollHeight;
+
+      // Get the actual dimensions needed for full content
+      const sidebarElement = sidebarRef.current;
+      const timelineElement = timelineRef.current;
+
+      // Calculate dimensions accounting for sidebar and timeline
+      const sidebarWidth = sidebarElement ? sidebarElement.scrollWidth : 500;
+      const timelineWidth = timelineElement ? timelineElement.scrollWidth : element.scrollWidth - sidebarWidth;
+      const totalWidth = sidebarWidth + timelineWidth;
+      const height = Math.max(
+        element.scrollHeight,
+        sidebarElement?.scrollHeight || 0,
+        timelineElement?.scrollHeight || 0
+      );
 
       // Save original styles
       const originalStyle = element.getAttribute('style');
+      const originalSidebarStyle = sidebarElement?.getAttribute('style');
+      const originalTimelineStyle = timelineElement?.getAttribute('style');
 
-      // Temporarily set to show all content
-      element.style.width = width + 'px';
+      // Temporarily set to show all content without overflow
+      element.style.width = totalWidth + 'px';
       element.style.height = height + 'px';
       element.style.overflow = 'visible';
       element.style.position = 'relative';
+      element.style.display = 'flex';
+
+      if (sidebarElement) {
+        sidebarElement.style.overflow = 'visible';
+        sidebarElement.style.width = sidebarWidth + 'px';
+        sidebarElement.style.minWidth = sidebarWidth + 'px';
+
+        // Remove truncate class from all project names in sidebar
+        const truncateElements = sidebarElement.querySelectorAll('.truncate');
+        truncateElements.forEach(el => {
+          el.style.whiteSpace = 'normal';
+          el.style.wordBreak = 'break-word';
+          el.classList.remove('truncate');
+        });
+      }
+
+      if (timelineElement) {
+        timelineElement.style.overflow = 'visible';
+        timelineElement.style.width = timelineWidth + 'px';
+      }
 
       // Wait for rendering
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -764,24 +865,32 @@ function App() {
         backgroundColor: '#f9fafb',
         scale: 2, // Higher scale for better quality
         logging: false,
-        windowWidth: width,
+        windowWidth: totalWidth,
         windowHeight: height,
-        onclone: (clonedDocument) => {
-          // Modify the cloned document to show all content
-          const clonedElement = clonedDocument.querySelector('[style*="overflow"]') || clonedDocument.body.firstChild;
-          if (clonedElement) {
-            clonedElement.style.overflow = 'visible';
-            clonedElement.style.height = height + 'px';
-            clonedElement.style.width = width + 'px';
-          }
-        }
+        useCORS: true
       });
 
-      // Restore original style
+      // Restore original styles
       if (originalStyle) {
         element.setAttribute('style', originalStyle);
       } else {
         element.removeAttribute('style');
+      }
+
+      if (sidebarElement) {
+        if (originalSidebarStyle) {
+          sidebarElement.setAttribute('style', originalSidebarStyle);
+        } else {
+          sidebarElement.removeAttribute('style');
+        }
+      }
+
+      if (timelineElement) {
+        if (originalTimelineStyle) {
+          timelineElement.setAttribute('style', originalTimelineStyle);
+        } else {
+          timelineElement.removeAttribute('style');
+        }
       }
 
       const link = document.createElement('a');
@@ -830,29 +939,57 @@ function App() {
                   {contracts.map(contract => (
                     <div
                       key={contract.id}
+                      onClick={() => {
+                        setSelectedContract(contract);
+                        setSelectedYear(null);
+                      }}
                       className="group relative p-6 bg-white border-2 border-gray-300 rounded-lg cursor-pointer hover:shadow-lg hover:border-blue-500 transition-all duration-200"
                     >
-                      <div
-                        onClick={() => {
-                          setSelectedContract(contract);
-                          setSelectedYear(null);
-                        }}
-                      >
-                        <h3 className="text-lg font-bold text-gray-800">{contract.name}</h3>
-                        {contract.description && (
-                          <p className="text-gray-600 mt-2 text-sm">{contract.description}</p>
+                      <h3 className="text-lg font-bold text-gray-800">{contract.name}</h3>
+                      {contract.description && (
+                        <p className="text-gray-600 mt-2 text-sm">{contract.description}</p>
+                      )}
+                      <div className="absolute top-2 right-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuId(openMenuId === contract.id ? null : contract.id);
+                          }}
+                          className="p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-100 rounded transition-all"
+                          title="Menu"
+                        >
+                          <MoreVertical className="h-5 w-5 text-gray-600" />
+                        </button>
+
+                        {openMenuId === contract.id && (
+                          <div
+                            className="absolute right-0 mt-1 w-40 bg-white border border-gray-300 rounded-lg shadow-lg z-50"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditContractClick(contract);
+                              }}
+                              className="w-full text-left px-4 py-2 hover:bg-blue-50 text-gray-700 flex items-center gap-2 border-b border-gray-200"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                              Editează
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteContractClick(contract);
+                                setOpenMenuId(null);
+                              }}
+                              className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 flex items-center gap-2"
+                            >
+                              <X className="h-4 w-4" />
+                              Șterge
+                            </button>
+                          </div>
                         )}
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteContractClick(contract);
-                        }}
-                        className="absolute top-2 right-2 p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition-all"
-                        title="Delete contract"
-                      >
-                        <X className="h-4 w-4 text-red-500" />
-                      </button>
                     </div>
                   ))}
                 </div>
@@ -874,11 +1011,10 @@ function App() {
                       {years.map(year => (
                         <div
                           key={year.id}
+                          onClick={() => setSelectedYear(year)}
                           className="group relative p-6 bg-white border-2 border-gray-300 rounded-lg cursor-pointer hover:shadow-lg hover:border-green-500 transition-all duration-200"
                         >
-                          <div onClick={() => setSelectedYear(year)}>
-                            <h3 className="text-xl font-bold text-gray-800">Anul {year.year}</h3>
-                          </div>
+                          <h3 className="text-xl font-bold text-gray-800">Anul {year.year}</h3>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -992,12 +1128,64 @@ function App() {
         </div>
       )}
 
+      {/* Edit Contract Modal */}
+      {showEditContractModal && contractToEdit && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-800">Editează Contract</h2>
+              <button
+                onClick={() => {
+                  setShowEditContractModal(false);
+                  setContractToEdit(null);
+                  setEditContractName('');
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <input
+              type="text"
+              placeholder="Nume contract"
+              value={editContractName}
+              onChange={(e) => setEditContractName(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSaveEditContract()}
+              autoFocus
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4"
+            />
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowEditContractModal(false);
+                  setContractToEdit(null);
+                  setEditContractName('');
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Anulează
+              </button>
+              <button
+                onClick={handleSaveEditContract}
+                disabled={!editContractName.trim() || savingEditContract}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {savingEditContract && <Loader className="h-4 w-4 animate-spin" />}
+                Salvează
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Contract Modal */}
       {showDeleteContractModal && contractToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-red-600">Șterge Contract</h2>
+              <h2 className="text-xl font-bold text-red-600">Ștergere Contract</h2>
               <button
                 onClick={() => {
                   setShowDeleteContractModal(false);
@@ -1016,13 +1204,13 @@ function App() {
                 <br /><br />
                 <span className="text-red-600 font-semibold">ATENȚIE: Aceasta va șterge toți anii și proiectele asociate. Această acțiune nu poate fi anulată.</span>
               </p>
-              <p className="text-sm text-gray-600 mb-4">Pentru a confirma, tastați numele contractului:</p>
+              <p className="text-sm text-gray-600 mb-4">Pentru a confirma, tastați <strong>delete</strong>:</p>
               <input
                 type="text"
-                placeholder={contractToDelete.name}
+                placeholder="delete"
                 value={deleteContractConfirmName}
                 onChange={(e) => setDeleteContractConfirmName(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && deleteContractConfirmName === contractToDelete.name && handleConfirmDeleteContract()}
+                onKeyPress={(e) => e.key === 'Enter' && deleteContractConfirmName === 'delete' && handleConfirmDeleteContract()}
                 autoFocus
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
               />
@@ -1041,7 +1229,7 @@ function App() {
               </button>
               <button
                 onClick={handleConfirmDeleteContract}
-                disabled={deleteContractConfirmName !== contractToDelete.name}
+                disabled={deleteContractConfirmName !== 'delete'}
                 className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Șterge Contract
@@ -1056,7 +1244,7 @@ function App() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-red-600">Șterge An</h2>
+              <h2 className="text-xl font-bold text-red-600">Ștergere An</h2>
               <button
                 onClick={() => {
                   setShowDeleteYearModal(false);
@@ -1075,13 +1263,13 @@ function App() {
                 <br /><br />
                 <span className="text-red-600 font-semibold">ATENȚIE: Aceasta va șterge toate proiectele din acest an. Această acțiune nu poate fi anulată.</span>
               </p>
-              <p className="text-sm text-gray-600 mb-4">Pentru a confirma, tastați anul:</p>
+              <p className="text-sm text-gray-600 mb-4">Pentru a confirma, tastați <strong>delete</strong>:</p>
               <input
                 type="text"
-                placeholder={String(yearToDelete.year)}
+                placeholder="delete"
                 value={deleteYearConfirmYear}
                 onChange={(e) => setDeleteYearConfirmYear(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && deleteYearConfirmYear === String(yearToDelete.year) && handleConfirmDeleteYear()}
+                onKeyPress={(e) => e.key === 'Enter' && deleteYearConfirmYear === 'delete' && handleConfirmDeleteYear()}
                 autoFocus
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
               />
@@ -1100,7 +1288,7 @@ function App() {
               </button>
               <button
                 onClick={handleConfirmDeleteYear}
-                disabled={deleteYearConfirmYear !== String(yearToDelete.year)}
+                disabled={deleteYearConfirmYear !== 'delete'}
                 className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Șterge An
@@ -1157,11 +1345,43 @@ function App() {
               ← Înapoi
             </button>
 
-            {/* Title with Breadcrumbs */}
-            <div className="flex items-center gap-1 text-white/80 text-sm">
-              <span className="font-medium">{selectedContract?.name}</span>
-              <span>•</span>
-              <span className="font-medium">Anul {selectedYear?.year}</span>
+            {/* Contract and Year Selectors */}
+            <div className="flex items-center gap-2 text-white/80 text-sm">
+              <select
+                value={selectedContract?.id || ''}
+                onChange={(e) => {
+                  const contract = contracts.find(c => c.id === parseInt(e.target.value));
+                  isHeaderChangeRef.current = true;
+                  setSelectedContract(contract);
+                }}
+                className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors border border-white/30 focus:outline-none focus:ring-2 focus:ring-white/50"
+              >
+                <option value="">Selectează contract...</option>
+                {contracts.map(contract => (
+                  <option key={contract.id} value={contract.id}>
+                    {contract.name}
+                  </option>
+                ))}
+              </select>
+
+              <span className="text-white/40">•</span>
+
+              <select
+                value={selectedYear?.id || ''}
+                onChange={(e) => {
+                  const year = years.find(y => y.id === parseInt(e.target.value));
+                  setSelectedYear(year);
+                }}
+                disabled={!selectedContract}
+                className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors border border-white/30 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="">Selectează an...</option>
+                {years.map(year => (
+                  <option key={year.id} value={year.id}>
+                    Anul {year.year}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Search Bar */}
@@ -1535,6 +1755,43 @@ function App() {
                 />
               </div>
 
+              {/* Google Drive Link */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Google Drive Link
+                </label>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    {editingTask.google_drive_link ? (
+                      <div className="flex items-center justify-between px-4 py-2 border border-gray-300 rounded-lg bg-gray-50">
+                        <a
+                          href={editingTask.google_drive_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 underline truncate"
+                        >
+                          Deschide Link
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500">
+                        Niciun link adăugat
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setGoogleDriveLink(editingTask.google_drive_link || '');
+                      setShowGoogleDriveLinkModal(true);
+                    }}
+                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                    Editează
+                  </button>
+                </div>
+              </div>
+
               {/* Progress */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1753,6 +2010,67 @@ function App() {
                   Șterge
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Google Drive Link Modal */}
+      {showGoogleDriveLinkModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-800">Google Drive Link</h2>
+              <button
+                onClick={() => {
+                  setShowGoogleDriveLinkModal(false);
+                  setGoogleDriveLink('');
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Lipește linkul Google Drive
+              </label>
+              <input
+                type="url"
+                placeholder="https://drive.google.com/..."
+                value={googleDriveLink}
+                onChange={(e) => setGoogleDriveLink(e.target.value)}
+                autoFocus
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowGoogleDriveLinkModal(false);
+                  setGoogleDriveLink('');
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Anulează
+              </button>
+              <button
+                onClick={() => {
+                  const updatedTask = { ...editingTask, google_drive_link: googleDriveLink || null };
+                  setEditingTask(updatedTask);
+
+                  // Update the tasks array so the link persists
+                  setTasks(tasks.map(t => t.id === editingTask.id ? updatedTask : t));
+
+                  setShowGoogleDriveLinkModal(false);
+                  setGoogleDriveLink('');
+                }}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                Salvează
+              </button>
             </div>
           </div>
         </div>

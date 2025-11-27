@@ -1,3 +1,13 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Custom styling for select dropdowns in header */
+select {
+  color-scheme: dark;
+}
+
+select option {
+  background-color: #1f2937;
+  color: #ffffff;
+}
