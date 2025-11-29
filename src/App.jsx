@@ -939,9 +939,6 @@ function App() {
                       className="group relative p-6 bg-white border-2 border-gray-300 rounded-lg cursor-pointer hover:shadow-lg hover:border-blue-500 transition-all duration-200"
                     >
                       <h3 className="text-lg font-bold text-gray-800">{contract.name}</h3>
-                      {contract.description && (
-                        <p className="text-gray-600 mt-2 text-sm">{contract.description}</p>
-                      )}
                       <div className="absolute top-2 right-2">
                         <button
                           onClick={(e) => {
@@ -1563,7 +1560,7 @@ function App() {
           <div className="flex-1 bg-white overflow-auto" ref={timelineRef}>
             <div style={{ width: totalWeeks * cellWidth }}>
               {/* Timeline Headers */}
-              <div className={`bg-white relative z-10 border-b ${currentTemplate.colors.gridLine}`} style={{ height: 48 }}>
+              <div className={`sticky top-0 bg-white relative z-10 border-b ${currentTemplate.colors.gridLine}`} style={{ height: 48 }}>
                 {/* Month Header Row - positioned absolutely to match grid lines */}
                 <div className="relative" style={{ width: totalWeeks * cellWidth, height: 48 }}>
                   {months.map((month, monthIndex) => (
