@@ -7,6 +7,15 @@ import html2canvas from 'html2canvas';
 import { templates, defaultTemplate } from './templates.js';
 
 function App() {
+  // Authentication
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    // Default to false (show login screen) for fresh sessions
+    const saved = localStorage.getItem('ganttAuth');
+    return saved === 'true';
+  });
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState(null);
+
   // State management
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +44,7 @@ function App() {
   const [selectedContract, setSelectedContract] = useState(null);
   const [years, setYears] = useState([]);
   const [selectedYear, setSelectedYear] = useState(null);
-  const [loadingContracts, setLoadingContracts] = useState(true);
+  const [loadingContracts, setLoadingContracts] = useState(!isAuthenticated ? false : true);
 
   // Add/Delete modals
   const [showAddContractModal, setShowAddContractModal] = useState(false);
@@ -76,27 +85,42 @@ function App() {
 
   const totalMonthsCount = getTotalMonths();
 
-  // Fetch contracts on mount
+  // Fetch contracts on mount (only if authenticated)
   useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
     const fetchContracts = async () => {
       try {
         setLoadingContracts(true);
-        const { data: contractsData, error: contractError } = await supabase
+        console.log('Fetching contracts...');
+        const response = await supabase
           .from('contracts')
-          .select('*')
-          .order('name', { ascending: true });
+          .select('*');
 
-        if (contractError) throw contractError;
+        console.log('Full response:', response);
+        const { data: contractsData, error: contractError } = response;
+
+        console.log('Contracts response:', { contractsData, contractError });
+
+        if (contractError) {
+          console.error('Query error:', contractError);
+          throw contractError;
+        }
+
+        console.log('Setting contracts:', contractsData);
         setContracts(contractsData || []);
       } catch (err) {
         console.error('Error fetching contracts:', err);
+        setError(`Error fetching contracts: ${err.message || JSON.stringify(err)}`);
       } finally {
         setLoadingContracts(false);
       }
     };
 
     fetchContracts();
-  }, []);
+  }, [isAuthenticated]);
 
   // Fetch years when contract is selected
   useEffect(() => {
@@ -166,6 +190,7 @@ function App() {
           weekOffset: project.week_offset || 0, // 0-3 weeks offset at the end
           color: project.color || '#3B82F6', // Default blue
           progress: project.progress,
+          show_progress: project.show_progress !== false,
           sortOrder: project.sort_order,
           stages: (project.stages || []).map(stage => ({
             id: stage.id,
@@ -262,13 +287,36 @@ function App() {
   }, [filteredTasks]);
 
   // Task click handler
-  const handleTaskClick = (task) => {
+  const handleTaskClick = async (task) => {
     setSelectedTask(task);
-    // Deep copy task including stages array
-    setEditingTask({
-      ...task,
-      stages: task.stages.map(s => ({ ...s }))
-    });
+
+    // Fetch fresh project data from database to get latest google_drive_link
+    try {
+      const { data: projectData, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', task.id)
+        .single();
+
+      if (error) throw error;
+
+      // Deep copy task including stages array
+      const editTask = {
+        ...task,
+        google_drive_link: projectData.google_drive_link,
+        show_progress: projectData.show_progress !== false,
+        stages: task.stages.map(s => ({ ...s }))
+      };
+
+      setEditingTask(editTask);
+    } catch (err) {
+      console.error('Error fetching project details:', err);
+      // Fallback to local task if fetch fails
+      setEditingTask({
+        ...task,
+        stages: task.stages.map(s => ({ ...s }))
+      });
+    }
   };
 
   // Expand/collapse handler
@@ -433,18 +481,49 @@ function App() {
     }
   };
 
+  // Login handler
+  const handleLogin = (e) => {
+    e.preventDefault();
+    setLoginError(null);
+
+    if (password === 'lucrari123') {
+      setIsAuthenticated(true);
+      localStorage.setItem('ganttAuth', 'true');
+      setPassword('');
+    } else {
+      setLoginError('Password incorrect');
+      setPassword('');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem('ganttAuth');
+    setPassword('');
+  };
+
   // Add project handler
   const handleAddProject = async (projectName) => {
     try {
       setSavingTask(true);
       setError(null);
 
+      // Check if contract and year are selected
+      if (!selectedContract || !selectedYear) {
+        setError('Please select a contract and year first');
+        setSavingTask(false);
+        return;
+      }
+
       const newProjectData = {
         name: projectName,
+        contract_id: selectedContract.id,
+        year_id: selectedYear.id,
         start_month: 0,
         duration: 1,
         duration_weeks: 4,
         progress: 0,
+        show_progress: true,
         color: currentTemplate.colors.taskBarDefault,
         start_week_offset: 0,
         week_offset: 0
@@ -469,7 +548,10 @@ function App() {
           weekOffset: data[0].week_offset || 0,
           color: data[0].color || currentTemplate.colors.taskBarDefault,
           progress: data[0].progress,
-          stages: []
+          show_progress: data[0].show_progress !== false,
+          stages: [],
+          contract_id: data[0].contract_id,
+          year_id: data[0].year_id
         };
         setTasks([...tasks, newProject]);
       }
@@ -706,6 +788,7 @@ function App() {
           start_week_offset: editingTask.startWeekOffset || 0,
           week_offset: editingTask.weekOffset || 0,
           progress: editingTask.progress,
+          show_progress: editingTask.show_progress !== false,
           color: editingTask.color || '#3B82F6',
           google_drive_link: editingTask.google_drive_link || null,
           updated_at: new Date().toISOString()
@@ -896,6 +979,47 @@ function App() {
     }
   };
 
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gradient-to-r from-slate-700 via-slate-800 to-slate-900">
+        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">Gantt Chart</h1>
+          <p className="text-gray-600 text-center mb-6">Diagrama de Gantt pentru Lucrări</p>
+
+          <form onSubmit={handleLogin}>
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Introduceți parola"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                autoFocus
+              />
+            </div>
+
+            {loginError && (
+              <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+                {loginError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium"
+            >
+              Login
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   // Show contract selection screen if no contract or year is selected
   if (!selectedContract || !selectedYear) {
     return (
@@ -907,13 +1031,33 @@ function App() {
 
         <div className="flex-1 overflow-y-auto p-8">
           <div className="max-w-4xl mx-auto">
+            {error && (
+              <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-center justify-between">
+                <span>{error}</span>
+                <button
+                  onClick={() => setError(null)}
+                  className="text-red-700 hover:text-red-900"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
             {loadingContracts ? (
               <div className="flex items-center justify-center h-64">
                 <Loader className="h-8 w-8 animate-spin text-blue-500" />
               </div>
             ) : contracts.length === 0 ? (
-              <div className="text-center text-gray-500 h-64 flex items-center justify-center">
+              <div className="text-center text-gray-500 h-64 flex items-center justify-center flex-col gap-4">
                 <p>Nu sunt contracte disponibile</p>
+                <button
+                  onClick={() => {
+                    localStorage.removeItem('ganttAuth');
+                    setIsAuthenticated(false);
+                  }}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  Logout
+                </button>
               </div>
             ) : (
               <div>
@@ -1426,6 +1570,15 @@ function App() {
             >
               <Camera className="h-4 w-4" />
             </button>
+
+            {/* Logout Button */}
+            <button
+              onClick={handleLogout}
+              className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors flex-shrink-0"
+              title="Logout"
+            >
+              Logout
+            </button>
           </div>
         </div>
         </div>
@@ -1613,7 +1766,8 @@ function App() {
                         className="border-b border-gray-200 relative flex items-center"
                         style={{ height: rowHeight, paddingTop: '8px', paddingBottom: '8px' }}
                       >
-                        {/* Colorful Task Bar */}
+                        {/* Colorful Task Bar - Only show if progress is enabled */}
+                        {task.show_progress !== false && (
                         <div
                           className={`absolute ${currentTemplate.styles.borderRadius} ${currentTemplate.styles.shadow} hover:shadow-xl cursor-pointer transition-all duration-200 hover:scale-105 hover:z-20`}
                           style={{
@@ -1626,20 +1780,24 @@ function App() {
                           }}
                         >
                           {/* Progress Overlay - Darker overlay */}
-                          <div
-                            className={`absolute left-0 top-0 h-full ${currentTemplate.styles.borderRadius}`}
-                            style={{
-                              width: `${task.progress}%`,
-                              backgroundColor: 'rgba(0, 0, 0, 0.3)'
-                            }}
-                          />
+                          {task.show_progress !== false && (
+                            <>
+                              <div
+                                className={`absolute left-0 top-0 h-full ${currentTemplate.styles.borderRadius}`}
+                                style={{
+                                  width: `${task.progress}%`,
+                                  backgroundColor: 'rgba(0, 0, 0, 0.3)'
+                                }}
+                              />
 
-                          {/* Progress Text */}
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-white font-medium text-[10px] drop-shadow-sm">
-                              {task.progress}%
-                            </span>
-                          </div>
+                              {/* Progress Text */}
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-white font-medium text-[10px] drop-shadow-sm">
+                                  {task.progress}%
+                                </span>
+                              </div>
+                            </>
+                          )}
 
                           {/* Drag Handles */}
                           <div
@@ -1651,6 +1809,7 @@ function App() {
                             onMouseDown={(e) => handleBarDragStart(e, task, 'end')}
                           />
                         </div>
+                        )}
                       </div>
 
                       {/* Stage Rows */}
@@ -1762,20 +1921,35 @@ function App() {
 
               {/* Progress */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
                   Progres
                 </label>
-                <div className="space-y-2">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={editingTask.progress}
-                    onChange={(e) => setEditingTask({ ...editingTask, progress: parseInt(e.target.value) })}
-                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <div className="text-center">
-                    <span className="text-3xl font-bold text-gray-800">{editingTask.progress}%</span>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={editingTask.progress}
+                      onChange={(e) => setEditingTask({ ...editingTask, progress: parseInt(e.target.value) })}
+                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                      disabled={!editingTask.show_progress}
+                    />
+                    <div className="text-center min-w-12">
+                      <span className="text-lg font-bold text-gray-800">{editingTask.progress}%</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
+                    <input
+                      type="checkbox"
+                      id="show-progress"
+                      checked={editingTask.show_progress !== false}
+                      onChange={(e) => setEditingTask({ ...editingTask, show_progress: e.target.checked })}
+                      className="h-4 w-4 text-blue-500 rounded cursor-pointer"
+                    />
+                    <label htmlFor="show-progress" className="text-sm text-gray-700 cursor-pointer">
+                      Afișează bara de progres pe calendar
+                    </label>
                   </div>
                 </div>
               </div>
@@ -2025,15 +2199,27 @@ function App() {
                 Anulează
               </button>
               <button
-                onClick={() => {
-                  const updatedTask = { ...editingTask, google_drive_link: googleDriveLink || null };
-                  setEditingTask(updatedTask);
+                onClick={async () => {
+                  try {
+                    // Save directly to database
+                    const { error } = await supabase
+                      .from('projects')
+                      .update({ google_drive_link: googleDriveLink || null })
+                      .eq('id', editingTask.id);
 
-                  // Update the tasks array so the link persists
-                  setTasks(tasks.map(t => t.id === editingTask.id ? updatedTask : t));
+                    if (error) throw error;
 
-                  setShowGoogleDriveLinkModal(false);
-                  setGoogleDriveLink('');
+                    // Update local state
+                    const updatedTask = { ...editingTask, google_drive_link: googleDriveLink || null };
+                    setEditingTask(updatedTask);
+                    setTasks(tasks.map(t => t.id === editingTask.id ? updatedTask : t));
+
+                    setShowGoogleDriveLinkModal(false);
+                    setGoogleDriveLink('');
+                  } catch (err) {
+                    console.error('Error saving Google Drive link:', err);
+                    setError('Failed to save Google Drive link');
+                  }
                 }}
                 className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
               >
