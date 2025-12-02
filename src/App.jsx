@@ -75,6 +75,14 @@ function App() {
   const [showGoogleDriveLinkModal, setShowGoogleDriveLinkModal] = useState(false);
   const [googleDriveLink, setGoogleDriveLink] = useState('');
 
+  // Comments
+  const [comments, setComments] = useState([]);
+  const [showAddCommentModal, setShowAddCommentModal] = useState(false);
+  const [commentAuthorName, setCommentAuthorName] = useState('');
+  const [commentText, setCommentText] = useState('');
+  const [savingComment, setSavingComment] = useState(false);
+  const [activeTab, setActiveTab] = useState('settings'); // 'settings' or 'comments'
+
   const currentTemplate = templates[templateKey] || templates[defaultTemplate];
 
   // Refs for synchronized scrolling
@@ -289,8 +297,9 @@ function App() {
   // Task click handler
   const handleTaskClick = async (task) => {
     setSelectedTask(task);
+    setActiveTab('settings');
 
-    // Fetch fresh project data from database to get latest google_drive_link
+    // Fetch fresh project data from database to get latest google_drive_link and comments
     try {
       const { data: projectData, error } = await supabase
         .from('projects')
@@ -299,6 +308,17 @@ function App() {
         .single();
 
       if (error) throw error;
+
+      // Fetch comments for this project
+      const { data: commentsData, error: commentsError } = await supabase
+        .from('comments')
+        .select('*')
+        .eq('project_id', task.id)
+        .order('created_at', { ascending: false });
+
+      if (!commentsError) {
+        setComments(commentsData || []);
+      }
 
       // Deep copy task including stages array
       const editTask = {
@@ -316,6 +336,7 @@ function App() {
         ...task,
         stages: task.stages.map(s => ({ ...s }))
       });
+      setComments([]);
     }
   };
 
@@ -768,6 +789,65 @@ function App() {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [dragging, cellWidth, totalMonthsCount]);
+
+  // Add comment handler
+  const handleAddComment = async (e) => {
+    e.preventDefault();
+    if (!editingTask || !commentAuthorName.trim() || !commentText.trim()) return;
+
+    try {
+      setSavingComment(true);
+      const { data, error } = await supabase
+        .from('comments')
+        .insert([
+          {
+            project_id: editingTask.id,
+            author_name: commentAuthorName.trim(),
+            content: commentText.trim()
+          }
+        ])
+        .select();
+
+      if (error) throw error;
+
+      // Add the new comment to local state
+      if (data && data.length > 0) {
+        setComments([data[0], ...comments]);
+      }
+
+      // Clear form
+      setCommentAuthorName('');
+      setCommentText('');
+      setShowAddCommentModal(false);
+    } catch (err) {
+      console.error('Error adding comment:', err);
+      setError('Failed to add comment');
+    } finally {
+      setSavingComment(false);
+    }
+  };
+
+  // Delete comment handler
+  const handleDeleteComment = async (commentId) => {
+    if (!window.confirm('Ești sigur că vrei să ștergi acest comentariu?')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId);
+
+      if (error) throw error;
+
+      // Remove from local state
+      setComments(comments.filter(c => c.id !== commentId));
+    } catch (err) {
+      console.error('Error deleting comment:', err);
+      setError('Failed to delete comment');
+    }
+  };
 
   // Save task to Supabase
   const handleSaveTask = async () => {
@@ -1852,9 +1932,9 @@ function App() {
       {/* Edit Modal */}
       {selectedTask && editingTask && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto flex flex-col">
             <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold text-gray-800">Modifică Proiect</h2>
                 <button
                   onClick={() => {
@@ -1866,9 +1946,36 @@ function App() {
                   <X className="h-5 w-5" />
                 </button>
               </div>
+
+              {/* Tabs */}
+              <div className="flex gap-4 border-b border-gray-200">
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                    activeTab === 'settings'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Setări
+                </button>
+                <button
+                  onClick={() => setActiveTab('comments')}
+                  className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                    activeTab === 'comments'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Comentarii ({comments.length})
+                </button>
+              </div>
             </div>
 
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-6 overflow-y-auto flex-1">
+              {/* Settings Tab */}
+              {activeTab === 'settings' && (
+              <>
               {/* Project Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -2113,8 +2220,59 @@ function App() {
                   ))}
                 </div>
               </div>
+              </>
+              )}
 
-              {/* Action Buttons */}
+              {/* Comments Tab */}
+              {activeTab === 'comments' && (
+              <div className="space-y-4 flex flex-col flex-1">
+                {/* Comments List */}
+                <div className="flex-1 overflow-y-auto">
+                  {comments.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <p>Nu există comentarii</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {comments.map((comment) => (
+                        <div key={comment.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <p className="font-semibold text-gray-800">{comment.author_name}</p>
+                              <p className="text-sm text-gray-500">
+                                {new Date(comment.created_at).toLocaleString('ro-RO')}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteComment(comment.id)}
+                              className="ml-2 p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Șterge comentariu"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <p className="text-gray-700 whitespace-pre-wrap">{comment.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Add Comment Button */}
+                <div className="pt-4 border-t border-gray-200 flex justify-end">
+                  <button
+                    onClick={() => setShowAddCommentModal(true)}
+                    className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    title="Adaugă comentariu"
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              )}
+
+              {/* Action Buttons - Only on Settings Tab */}
+              {activeTab === 'settings' && (
               <div className="flex gap-3 pt-6 border-t border-gray-200">
                 <button
                   onClick={handleSaveTask}
@@ -2152,6 +2310,7 @@ function App() {
                   Șterge
                 </button>
               </div>
+              )}
             </div>
           </div>
         </div>
@@ -2226,6 +2385,85 @@ function App() {
                 Salvează
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Comment Modal */}
+      {showAddCommentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-800">Adaugă Comentariu</h2>
+              <button
+                onClick={() => {
+                  setShowAddCommentModal(false);
+                  setCommentAuthorName('');
+                  setCommentText('');
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddComment} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nume
+                </label>
+                <input
+                  type="text"
+                  value={commentAuthorName}
+                  onChange={(e) => setCommentAuthorName(e.target.value)}
+                  placeholder="Introduceti numele"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Comentariu
+                </label>
+                <textarea
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder="Introduceti comentariul"
+                  rows="4"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddCommentModal(false);
+                    setCommentAuthorName('');
+                    setCommentText('');
+                  }}
+                  disabled={savingComment}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  Anulează
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingComment || !commentAuthorName.trim() || !commentText.trim()}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {savingComment ? (
+                    <>
+                      <Loader className="h-4 w-4 animate-spin" />
+                      Se salvează...
+                    </>
+                  ) : (
+                    'Salvează'
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
