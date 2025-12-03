@@ -9,9 +9,13 @@ import { templates, defaultTemplate } from './templates.js';
 function App() {
   // Authentication
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    // Default to false (show login screen) for fresh sessions
-    const saved = localStorage.getItem('ganttAuth');
+    // Check sessionStorage only (cleared when browser closes)
+    const saved = sessionStorage.getItem('ganttAuth');
     return saved === 'true';
+  });
+  const [userRole, setUserRole] = useState(() => {
+    // Check sessionStorage for user role
+    return sessionStorage.getItem('ganttRole') || null;
   });
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState(null);
@@ -507,9 +511,17 @@ function App() {
     e.preventDefault();
     setLoginError(null);
 
-    if (password === 'lucrari123') {
+    if (password === 'admin123') {
       setIsAuthenticated(true);
-      localStorage.setItem('ganttAuth', 'true');
+      setUserRole('admin');
+      sessionStorage.setItem('ganttAuth', 'true');
+      sessionStorage.setItem('ganttRole', 'admin');
+      setPassword('');
+    } else if (password === 'lucrari123') {
+      setIsAuthenticated(true);
+      setUserRole('viewer');
+      sessionStorage.setItem('ganttAuth', 'true');
+      sessionStorage.setItem('ganttRole', 'viewer');
       setPassword('');
     } else {
       setLoginError('Password incorrect');
@@ -519,7 +531,9 @@ function App() {
 
   const handleLogout = () => {
     setIsAuthenticated(false);
-    localStorage.removeItem('ganttAuth');
+    setUserRole(null);
+    sessionStorage.removeItem('ganttAuth');
+    sessionStorage.removeItem('ganttRole');
     setPassword('');
   };
 
@@ -528,6 +542,13 @@ function App() {
     try {
       setSavingTask(true);
       setError(null);
+
+      // Check permissions
+      if (userRole !== 'admin') {
+        setError('You do not have permission to add projects. Admin access required.');
+        setSavingTask(false);
+        return;
+      }
 
       // Check if contract and year are selected
       if (!selectedContract || !selectedYear) {
@@ -586,6 +607,11 @@ function App() {
 
   // Delete project handler
   const handleDeleteProject = async (projectId) => {
+    if (userRole !== 'admin') {
+      setError('You do not have permission to delete projects. Admin access required.');
+      return;
+    }
+
     if (!window.confirm('Are you sure you want to delete this project? This cannot be undone.')) {
       return;
     }
@@ -615,6 +641,10 @@ function App() {
 
   // Reorder projects handler
   const handleReorderProjects = async (draggedId, droppedOnId) => {
+    if (userRole !== 'admin') {
+      return;
+    }
+
     if (draggedId === droppedOnId) return;
 
     const draggedIndex = tasks.findIndex(t => t.id === draggedId);
@@ -653,6 +683,11 @@ function App() {
 
   // Drag handlers for task bars
   const handleBarDragStart = (e, task, edge) => {
+    // Prevent dragging if not admin
+    if (userRole !== 'admin') {
+      return;
+    }
+
     e.preventDefault();
     e.stopPropagation(); // Prevent click from triggering modal
     setDragging({
@@ -795,6 +830,11 @@ function App() {
     e.preventDefault();
     if (!editingTask || !commentAuthorName.trim() || !commentText.trim()) return;
 
+    if (userRole !== 'admin') {
+      setError('You do not have permission to add comments. Admin access required.');
+      return;
+    }
+
     try {
       setSavingComment(true);
       const { data, error } = await supabase
@@ -829,6 +869,11 @@ function App() {
 
   // Delete comment handler
   const handleDeleteComment = async (commentId) => {
+    if (userRole !== 'admin') {
+      setError('You do not have permission to delete comments. Admin access required.');
+      return;
+    }
+
     if (!window.confirm('Ești sigur că vrei să ștergi acest comentariu?')) {
       return;
     }
@@ -852,6 +897,11 @@ function App() {
   // Save task to Supabase
   const handleSaveTask = async () => {
     if (!editingTask) return;
+
+    if (userRole !== 'admin') {
+      setError('You do not have permission to edit projects. Admin access required.');
+      return;
+    }
 
     try {
       setSavingTask(true);
@@ -1131,7 +1181,7 @@ function App() {
                 <p>Nu sunt contracte disponibile</p>
                 <button
                   onClick={() => {
-                    localStorage.removeItem('ganttAuth');
+                    sessionStorage.removeItem('ganttAuth');
                     setIsAuthenticated(false);
                   }}
                   className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
@@ -1685,6 +1735,7 @@ function App() {
           {/* Sidebar Header */}
           <div className="h-12 bg-gray-100 border-b border-gray-200 flex items-center justify-between px-4 flex-shrink-0">
             <h3 className="font-semibold text-gray-800 text-sm">Nume Proiect</h3>
+            {userRole === 'admin' && (
             <button
               onClick={() => {
                 setShowAddProjectModal(true);
@@ -1695,6 +1746,7 @@ function App() {
             >
               <Plus className="h-4 w-4 text-gray-600" />
             </button>
+            )}
           </div>
 
           {/* Task Rows */}
@@ -1985,7 +2037,8 @@ function App() {
                   type="text"
                   value={editingTask.name}
                   onChange={(e) => setEditingTask({ ...editingTask, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={userRole !== 'admin'}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
                 />
               </div>
 
@@ -2013,6 +2066,7 @@ function App() {
                       </div>
                     )}
                   </div>
+                  {userRole === 'admin' && (
                   <button
                     onClick={() => {
                       setGoogleDriveLink(editingTask.google_drive_link || '');
@@ -2023,6 +2077,7 @@ function App() {
                     <Edit2 className="h-4 w-4" />
                     Editează
                   </button>
+                  )}
                 </div>
               </div>
 
@@ -2039,8 +2094,8 @@ function App() {
                       max="100"
                       value={editingTask.progress}
                       onChange={(e) => setEditingTask({ ...editingTask, progress: parseInt(e.target.value) })}
-                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                      disabled={!editingTask.show_progress}
+                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={!editingTask.show_progress || userRole !== 'admin'}
                     />
                     <div className="text-center min-w-12">
                       <span className="text-lg font-bold text-gray-800">{editingTask.progress}%</span>
@@ -2052,7 +2107,8 @@ function App() {
                       id="show-progress"
                       checked={editingTask.show_progress !== false}
                       onChange={(e) => setEditingTask({ ...editingTask, show_progress: e.target.checked })}
-                      className="h-4 w-4 text-blue-500 rounded cursor-pointer"
+                      disabled={userRole !== 'admin'}
+                      className="h-4 w-4 text-blue-500 rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                     />
                     <label htmlFor="show-progress" className="text-sm text-gray-700 cursor-pointer">
                       Afișează bara de progres pe calendar
@@ -2071,7 +2127,8 @@ function App() {
                     type="color"
                     value={editingTask.color || '#3B82F6'}
                     onChange={(e) => setEditingTask({ ...editingTask, color: e.target.value })}
-                    className="h-10 w-16 border border-gray-300 rounded-lg cursor-pointer"
+                    disabled={userRole !== 'admin'}
+                    className="h-10 w-16 border border-gray-300 rounded-lg cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <span className="text-sm text-gray-600">{editingTask.color || '#3B82F6'}</span>
                 </div>
@@ -2081,6 +2138,7 @@ function App() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <label className="text-sm font-medium text-gray-700">Etape</label>
+                  {userRole === 'admin' && (
                   <button
                     onClick={() => {
                       const newStage = {
@@ -2099,6 +2157,7 @@ function App() {
                     <Plus className="h-4 w-4" />
                     Adaugă Etapă
                   </button>
+                  )}
                 </div>
 
                 <div className="space-y-4">
@@ -2106,6 +2165,7 @@ function App() {
                     <div key={stage.id} className="p-4 bg-gray-50 rounded-lg space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="font-medium text-gray-700">Stage {index + 1}</span>
+                        {userRole === 'admin' && (
                         <button
                           onClick={() => {
                             setEditingTask({
@@ -2117,6 +2177,7 @@ function App() {
                         >
                           <X className="h-4 w-4" />
                         </button>
+                        )}
                       </div>
 
                       <div>
@@ -2132,7 +2193,8 @@ function App() {
                               )
                             });
                           }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                          disabled={userRole !== 'admin'}
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                         />
                       </div>
 
@@ -2149,7 +2211,8 @@ function App() {
                                 )
                               });
                             }}
-                            className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm"
+                            disabled={userRole !== 'admin'}
+                            className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                           >
                             {monthsShort.map((month, idx) => (
                               <option key={idx} value={idx}>{month}</option>
@@ -2172,7 +2235,8 @@ function App() {
                                 )
                               });
                             }}
-                            className="w-24 px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm"
+                            disabled={userRole !== 'admin'}
+                            className="w-24 px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                           />
                         </div>
                       </div>
@@ -2193,7 +2257,8 @@ function App() {
                                 )
                               });
                             }}
-                            className="w-24 px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm"
+                            disabled={userRole !== 'admin'}
+                            className="w-24 px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                           />
                         </div>
 
@@ -2212,7 +2277,8 @@ function App() {
                                 )
                               });
                             }}
-                            className="w-24 px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm"
+                            disabled={userRole !== 'admin'}
+                            className="w-24 px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                           />
                         </div>
                       </div>
@@ -2243,6 +2309,7 @@ function App() {
                                 {new Date(comment.created_at).toLocaleString('ro-RO')}
                               </p>
                             </div>
+                            {userRole === 'admin' && (
                             <button
                               onClick={() => handleDeleteComment(comment.id)}
                               className="ml-2 p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -2250,6 +2317,7 @@ function App() {
                             >
                               <X className="h-4 w-4" />
                             </button>
+                            )}
                           </div>
                           <p className="text-gray-700 whitespace-pre-wrap">{comment.content}</p>
                         </div>
@@ -2259,6 +2327,7 @@ function App() {
                 </div>
 
                 {/* Add Comment Button */}
+                {userRole === 'admin' && (
                 <div className="pt-4 border-t border-gray-200 flex justify-end">
                   <button
                     onClick={() => setShowAddCommentModal(true)}
@@ -2268,6 +2337,7 @@ function App() {
                     <Plus className="h-5 w-5" />
                   </button>
                 </div>
+                )}
               </div>
               )}
 
@@ -2276,8 +2346,8 @@ function App() {
               <div className="flex gap-3 pt-6 border-t border-gray-200">
                 <button
                   onClick={handleSaveTask}
-                  disabled={savingTask}
-                  className="flex-1 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  disabled={savingTask || userRole !== 'admin'}
+                  className="flex-1 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-400 flex items-center justify-center gap-2"
                 >
                   {savingTask ? (
                     <>
@@ -2298,6 +2368,7 @@ function App() {
                 >
                   Anulează
                 </button>
+                {userRole === 'admin' && (
                 <button
                   onClick={() => {
                     handleDeleteProject(editingTask.id);
@@ -2309,6 +2380,7 @@ function App() {
                   <X className="h-4 w-4" />
                   Șterge
                 </button>
+                )}
               </div>
               )}
             </div>
