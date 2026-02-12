@@ -5,7 +5,8 @@
       "Bash(npm run build:*)",
       "mcp__supabase__apply_migration",
       "mcp__supabase__list_projects",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "mcp__supabase__list_tables"
     ]
   },
   "enableAllProjectMcpServers": true,

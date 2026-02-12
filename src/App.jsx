@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, MoreVertical } from 'lucide-react';
+import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, MoreVertical, Archive, RotateCcw } from 'lucide-react';
 import { months, monthsShort, cellWidth, rowHeight, totalMonths, weeksPerMonth, totalWeeks } from './data.js';
 import { getProgressColor, getTotalMonths, getMonthName, getTotalWeeks, monthToWeekStart, monthDurationToWeeks, getWeekOfMonth, darkenColor } from './utils.js';
 import { supabase } from './supabaseClient.js';
@@ -86,6 +86,11 @@ function App() {
   const [commentText, setCommentText] = useState('');
   const [savingComment, setSavingComment] = useState(false);
   const [activeTab, setActiveTab] = useState('settings'); // 'settings' or 'comments'
+
+  // Archive
+  const [archivedProjects, setArchivedProjects] = useState([]);
+  const [showArchivedModal, setShowArchivedModal] = useState(false);
+  const [loadingArchived, setLoadingArchived] = useState(false);
 
   const currentTemplate = templates[templateKey] || templates[defaultTemplate];
 
@@ -187,6 +192,7 @@ function App() {
           `)
           .eq('contract_id', selectedContract.id)
           .eq('year_id', selectedYear.id)
+          .eq('archived', false)
           .order('sort_order', { ascending: true });
 
         if (projectError) throw projectError;
@@ -636,6 +642,133 @@ function App() {
       setError(err.message || 'Failed to delete project');
     } finally {
       setSavingTask(false);
+    }
+  };
+
+  // Archive project handler
+  const handleArchiveProject = async (projectId) => {
+    if (userRole !== 'admin') {
+      setError('You do not have permission to archive projects. Admin access required.');
+      return;
+    }
+
+    try {
+      setSavingTask(true);
+      setError(null);
+
+      const { error: archiveError } = await supabase
+        .from('projects')
+        .update({ archived: true, updated_at: new Date().toISOString() })
+        .eq('id', projectId);
+
+      if (archiveError) throw archiveError;
+
+      // Remove from local state
+      setTasks(tasks.filter(t => t.id !== projectId));
+      setSelectedTask(null);
+      setEditingTask(null);
+    } catch (err) {
+      console.error('Error archiving project:', err);
+      setError(err.message || 'Failed to archive project');
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  // Fetch archived projects
+  const fetchArchivedProjects = async () => {
+    if (!selectedContract || !selectedYear) return;
+
+    try {
+      setLoadingArchived(true);
+      const { data, error: fetchError } = await supabase
+        .from('projects')
+        .select('id, name, color')
+        .eq('contract_id', selectedContract.id)
+        .eq('year_id', selectedYear.id)
+        .eq('archived', true)
+        .order('name', { ascending: true });
+
+      if (fetchError) throw fetchError;
+      setArchivedProjects(data || []);
+    } catch (err) {
+      console.error('Error fetching archived projects:', err);
+      setError(err.message || 'Failed to load archived projects');
+    } finally {
+      setLoadingArchived(false);
+    }
+  };
+
+  // Restore archived project handler
+  const handleRestoreProject = async (projectId) => {
+    if (userRole !== 'admin') {
+      setError('You do not have permission to restore projects. Admin access required.');
+      return;
+    }
+
+    try {
+      setLoadingArchived(true);
+      setError(null);
+
+      // Get max sort_order to place restored project at the end
+      const maxSortOrder = tasks.length > 0
+        ? Math.max(...tasks.map(t => t.sortOrder || 0)) + 1
+        : 0;
+
+      const { error: restoreError } = await supabase
+        .from('projects')
+        .update({
+          archived: false,
+          sort_order: maxSortOrder,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', projectId);
+
+      if (restoreError) throw restoreError;
+
+      // Remove from archived list
+      setArchivedProjects(prev => prev.filter(p => p.id !== projectId));
+
+      // Re-fetch projects to get the full restored project data
+      const { data: projects, error: projectError } = await supabase
+        .from('projects')
+        .select(`*, stages(*)`)
+        .eq('contract_id', selectedContract.id)
+        .eq('year_id', selectedYear.id)
+        .eq('archived', false)
+        .order('sort_order', { ascending: true });
+
+      if (projectError) throw projectError;
+
+      const formattedTasks = projects.map(project => ({
+        id: project.id,
+        name: project.name,
+        startMonth: project.start_month,
+        duration: project.duration,
+        durationWeeks: project.duration_weeks || project.duration * weeksPerMonth,
+        startWeekOffset: project.start_week_offset || 0,
+        weekOffset: project.week_offset || 0,
+        color: project.color || '#3B82F6',
+        progress: project.progress,
+        show_progress: project.show_progress !== false,
+        sortOrder: project.sort_order,
+        stages: (project.stages || []).map(stage => ({
+          id: stage.id,
+          name: stage.name,
+          startMonth: stage.start_month,
+          duration: stage.duration,
+          durationWeeks: stage.duration_weeks || stage.duration * weeksPerMonth,
+          startWeekOffset: stage.start_week_offset || 0,
+          weekOffset: stage.week_offset || 0
+        }))
+      }));
+
+      setTasks(formattedTasks);
+    } catch (err) {
+      console.error('Error restoring project:', err);
+      setError(err.message || 'Failed to restore project');
+    } finally {
+      setLoadingArchived(false);
     }
   };
 
@@ -1692,6 +1825,19 @@ function App() {
           </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Archived Projects Button */}
+            <button
+              onClick={() => {
+                fetchArchivedProjects();
+                setShowArchivedModal(true);
+              }}
+              className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-sm font-medium transition-colors flex-shrink-0 flex items-center gap-1"
+              title="Proiecte arhivate"
+            >
+              <Archive className="h-4 w-4" />
+              Arhivate
+            </button>
+
             {/* Screenshot Button */}
             <button
               onClick={handleScreenshot}
@@ -2371,6 +2517,19 @@ function App() {
                 {userRole === 'admin' && (
                 <button
                   onClick={() => {
+                    handleArchiveProject(editingTask.id);
+                  }}
+                  disabled={savingTask}
+                  className="px-6 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  title="Archive project"
+                >
+                  <Archive className="h-4 w-4" />
+                  Arhivează
+                </button>
+                )}
+                {userRole === 'admin' && (
+                <button
+                  onClick={() => {
                     handleDeleteProject(editingTask.id);
                   }}
                   disabled={savingTask}
@@ -2613,6 +2772,65 @@ function App() {
               >
                 Anulează
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Archived Projects Modal */}
+      {showArchivedModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-lg w-full mx-4 max-h-[80vh] flex flex-col">
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
+              <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <Archive className="h-5 w-5 text-amber-500" />
+                Proiecte Arhivate
+              </h2>
+              <button
+                onClick={() => setShowArchivedModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1">
+              {loadingArchived ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader className="h-6 w-6 animate-spin text-blue-500" />
+                </div>
+              ) : archivedProjects.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  Nu există proiecte arhivate
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {archivedProjects.map((project) => (
+                    <div
+                      key={project.id}
+                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div
+                          className="w-3 h-3 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: project.color || '#3B82F6' }}
+                        />
+                        <span className="text-sm text-gray-800 truncate">{project.name}</span>
+                      </div>
+                      {userRole === 'admin' && (
+                        <button
+                          onClick={() => handleRestoreProject(project.id)}
+                          disabled={loadingArchived}
+                          className="ml-3 p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                          title="Restaurează proiectul"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
