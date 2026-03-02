@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, MoreVertical, Archive, RotateCcw } from 'lucide-react';
+import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, MoreVertical, Archive, RotateCcw, Info } from 'lucide-react';
 import { months, monthsShort, cellWidth, rowHeight, totalMonths, weeksPerMonth, totalWeeks } from './data.js';
 import { getProgressColor, getTotalMonths, getMonthName, getTotalWeeks, monthToWeekStart, monthDurationToWeeks, getWeekOfMonth, darkenColor } from './utils.js';
 import { supabase } from './supabaseClient.js';
@@ -75,9 +75,11 @@ function App() {
   // Menu visibility
   const [openMenuId, setOpenMenuId] = useState(null);
 
-  // Google Drive link modal
-  const [showGoogleDriveLinkModal, setShowGoogleDriveLinkModal] = useState(false);
-  const [googleDriveLink, setGoogleDriveLink] = useState('');
+  // Project links
+  const [projectLinks, setProjectLinks] = useState([]);
+  const [showAddLinkModal, setShowAddLinkModal] = useState(false);
+  const [newLinkUrl, setNewLinkUrl] = useState('');
+  const [savingLink, setSavingLink] = useState(false);
 
   // Comments
   const [comments, setComments] = useState([]);
@@ -92,6 +94,9 @@ function App() {
   const [showArchivedModal, setShowArchivedModal] = useState(false);
   const [loadingArchived, setLoadingArchived] = useState(false);
 
+  // Comment tooltip on hover
+  const [commentTooltip, setCommentTooltip] = useState(null); // { projectId, comments, loading, x, y }
+
   const currentTemplate = templates[templateKey] || templates[defaultTemplate];
 
   // Refs for synchronized scrolling
@@ -99,6 +104,7 @@ function App() {
   const timelineRef = useRef(null);
   const chartContainerRef = useRef(null);
   const isHeaderChangeRef = useRef(false);
+  const commentTooltipTimerRef = useRef(null);
 
   const totalMonthsCount = getTotalMonths();
 
@@ -309,7 +315,7 @@ function App() {
     setSelectedTask(task);
     setActiveTab('settings');
 
-    // Fetch fresh project data from database to get latest google_drive_link and comments
+    // Fetch fresh project data from database
     try {
       const { data: projectData, error } = await supabase
         .from('projects')
@@ -330,10 +336,17 @@ function App() {
         setComments(commentsData || []);
       }
 
+      // Fetch links for this project
+      const { data: linksData } = await supabase
+        .from('project_links')
+        .select('id, url, created_at')
+        .eq('project_id', task.id)
+        .order('created_at', { ascending: true });
+      setProjectLinks(linksData || []);
+
       // Deep copy task including stages array
       const editTask = {
         ...task,
-        google_drive_link: projectData.google_drive_link,
         show_progress: projectData.show_progress !== false,
         stages: task.stages.map(s => ({ ...s }))
       };
@@ -347,6 +360,7 @@ function App() {
         stages: task.stages.map(s => ({ ...s }))
       });
       setComments([]);
+      setProjectLinks([]);
     }
   };
 
@@ -1027,6 +1041,52 @@ function App() {
     }
   };
 
+  // Add link handler
+  const handleAddLink = async () => {
+    if (!editingTask || !newLinkUrl.trim()) return;
+    if (userRole !== 'admin') return;
+
+    try {
+      setSavingLink(true);
+      const { data, error } = await supabase
+        .from('project_links')
+        .insert([{ project_id: editingTask.id, url: newLinkUrl.trim() }])
+        .select();
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setProjectLinks([...projectLinks, data[0]]);
+      }
+      setNewLinkUrl('');
+      setShowAddLinkModal(false);
+    } catch (err) {
+      console.error('Error adding link:', err);
+      setError('Failed to add link');
+    } finally {
+      setSavingLink(false);
+    }
+  };
+
+  // Delete link handler
+  const handleDeleteLink = async (linkId) => {
+    if (userRole !== 'admin') return;
+
+    try {
+      const { error } = await supabase
+        .from('project_links')
+        .delete()
+        .eq('id', linkId);
+
+      if (error) throw error;
+
+      setProjectLinks(projectLinks.filter(l => l.id !== linkId));
+    } catch (err) {
+      console.error('Error deleting link:', err);
+      setError('Failed to delete link');
+    }
+  };
+
   // Save task to Supabase
   const handleSaveTask = async () => {
     if (!editingTask) return;
@@ -1053,7 +1113,6 @@ function App() {
           progress: editingTask.progress,
           show_progress: editingTask.show_progress !== false,
           color: editingTask.color || '#3B82F6',
-          google_drive_link: editingTask.google_drive_link || null,
           updated_at: new Date().toISOString()
         })
         .eq('id', editingTask.id);
@@ -1951,11 +2010,36 @@ function App() {
                       <div className="text-xs font-medium text-gray-800 truncate">{task.name}</div>
                     </div>
                     <button
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseEnter={async (e) => {
+                        clearTimeout(commentTooltipTimerRef.current);
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setCommentTooltip({ projectId: task.id, comments: [], loading: true, x: rect.right + 8, y: rect.top });
+                        try {
+                          const { data } = await supabase
+                            .from('comments')
+                            .select('id, author_name, content, created_at')
+                            .eq('project_id', task.id)
+                            .order('created_at', { ascending: false });
+                          setCommentTooltip(prev => prev?.projectId === task.id ? { ...prev, comments: data || [], loading: false } : prev);
+                        } catch {
+                          setCommentTooltip(prev => prev?.projectId === task.id ? { ...prev, comments: [], loading: false } : prev);
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        commentTooltipTimerRef.current = setTimeout(() => setCommentTooltip(null), 200);
+                      }}
+                      className="ml-1 p-1 opacity-0 group-hover:opacity-100 hover:bg-blue-100 rounded transition-all flex-shrink-0"
+                      title="Comentarii"
+                    >
+                      <Info className="h-3.5 w-3.5 text-blue-500" />
+                    </button>
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDeleteProject(task.id);
                       }}
-                      className="ml-2 p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition-all"
+                      className="ml-1 p-1 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition-all"
                       title="Delete project"
                     >
                       <X className="h-4 w-4 text-red-500" />
@@ -2188,43 +2272,55 @@ function App() {
                 />
               </div>
 
-              {/* Google Drive Link */}
+              {/* Links */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Google Drive Link
-                </label>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    {editingTask.google_drive_link ? (
-                      <div className="flex items-center justify-between px-4 py-2 border border-gray-300 rounded-lg bg-gray-50">
-                        <a
-                          href={editingTask.google_drive_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800 underline truncate"
-                        >
-                          Deschide Link
-                        </a>
-                      </div>
-                    ) : (
-                      <div className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500">
-                        Niciun link adăugat
-                      </div>
-                    )}
-                  </div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Link-uri
+                  </label>
                   {userRole === 'admin' && (
-                  <button
-                    onClick={() => {
-                      setGoogleDriveLink(editingTask.google_drive_link || '');
-                      setShowGoogleDriveLinkModal(true);
-                    }}
-                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2"
-                  >
-                    <Edit2 className="h-4 w-4" />
-                    Editează
-                  </button>
+                    <button
+                      onClick={() => {
+                        setNewLinkUrl('');
+                        setShowAddLinkModal(true);
+                      }}
+                      className="px-3 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-1 text-sm"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Adaugă Link
+                    </button>
                   )}
                 </div>
+                {projectLinks.length === 0 ? (
+                  <div className="px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500 text-sm">
+                    Niciun link adăugat
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {projectLinks.map((link) => (
+                      <div key={link.id} className="flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 gap-2">
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 underline truncate text-sm flex-1"
+                          title={link.url}
+                        >
+                          {link.url}
+                        </a>
+                        {userRole === 'admin' && (
+                          <button
+                            onClick={() => handleDeleteLink(link.id)}
+                            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors flex-shrink-0"
+                            title="Șterge link"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Progress */}
@@ -2547,16 +2643,16 @@ function App() {
         </div>
       )}
 
-      {/* Google Drive Link Modal */}
-      {showGoogleDriveLinkModal && (
+      {/* Add Link Modal */}
+      {showAddLinkModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-800">Google Drive Link</h2>
+              <h2 className="text-xl font-bold text-gray-800">Adaugă Link</h2>
               <button
                 onClick={() => {
-                  setShowGoogleDriveLinkModal(false);
-                  setGoogleDriveLink('');
+                  setShowAddLinkModal(false);
+                  setNewLinkUrl('');
                 }}
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >
@@ -2566,13 +2662,14 @@ function App() {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Lipește linkul Google Drive
+                URL
               </label>
               <input
                 type="url"
-                placeholder="https://drive.google.com/..."
-                value={googleDriveLink}
-                onChange={(e) => setGoogleDriveLink(e.target.value)}
+                placeholder="https://..."
+                value={newLinkUrl}
+                onChange={(e) => setNewLinkUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && newLinkUrl.trim()) handleAddLink(); }}
                 autoFocus
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -2581,39 +2678,27 @@ function App() {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => {
-                  setShowGoogleDriveLinkModal(false);
-                  setGoogleDriveLink('');
+                  setShowAddLinkModal(false);
+                  setNewLinkUrl('');
                 }}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={savingLink}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
               >
                 Anulează
               </button>
               <button
-                onClick={async () => {
-                  try {
-                    // Save directly to database
-                    const { error } = await supabase
-                      .from('projects')
-                      .update({ google_drive_link: googleDriveLink || null })
-                      .eq('id', editingTask.id);
-
-                    if (error) throw error;
-
-                    // Update local state
-                    const updatedTask = { ...editingTask, google_drive_link: googleDriveLink || null };
-                    setEditingTask(updatedTask);
-                    setTasks(tasks.map(t => t.id === editingTask.id ? updatedTask : t));
-
-                    setShowGoogleDriveLinkModal(false);
-                    setGoogleDriveLink('');
-                  } catch (err) {
-                    console.error('Error saving Google Drive link:', err);
-                    setError('Failed to save Google Drive link');
-                  }
-                }}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                onClick={handleAddLink}
+                disabled={savingLink || !newLinkUrl.trim()}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                Salvează
+                {savingLink ? (
+                  <>
+                    <Loader className="h-4 w-4 animate-spin" />
+                    Se salvează...
+                  </>
+                ) : (
+                  'Salvează'
+                )}
               </button>
             </div>
           </div>
@@ -2773,6 +2858,46 @@ function App() {
                 Anulează
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comment Tooltip */}
+      {commentTooltip && (
+        <div
+          className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl w-72"
+          style={{ left: Math.min(commentTooltip.x, window.innerWidth - 300), top: Math.max(8, commentTooltip.y) }}
+          onMouseEnter={() => clearTimeout(commentTooltipTimerRef.current)}
+          onMouseLeave={() => {
+            commentTooltipTimerRef.current = setTimeout(() => setCommentTooltip(null), 200);
+          }}
+        >
+          <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-2">
+            <Info className="h-4 w-4 text-blue-500 flex-shrink-0" />
+            <span className="font-semibold text-sm text-gray-800">Comentarii</span>
+          </div>
+          <div className="p-3 max-h-64 overflow-y-auto">
+            {commentTooltip.loading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader className="h-4 w-4 animate-spin text-blue-500" />
+              </div>
+            ) : commentTooltip.comments.length === 0 ? (
+              <p className="text-xs text-gray-500 text-center py-2">Nu există comentarii</p>
+            ) : (
+              <div className="space-y-2">
+                {commentTooltip.comments.map(c => (
+                  <div key={c.id} className="text-xs border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="font-semibold text-gray-800">{c.author_name}</span>
+                      <span className="text-gray-400 text-[10px]">
+                        {new Date(c.created_at).toLocaleDateString('ro-RO')}
+                      </span>
+                    </div>
+                    <p className="text-gray-600 whitespace-pre-wrap">{c.content}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
