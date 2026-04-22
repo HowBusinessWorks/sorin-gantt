@@ -1940,18 +1940,21 @@ function App() {
           {/* Sidebar Header */}
           <div className="h-12 bg-gray-100 border-b border-gray-200 flex items-center justify-between px-4 flex-shrink-0">
             <h3 className="font-semibold text-gray-800 text-sm">Nume Proiect</h3>
-            {userRole === 'admin' && (
-            <button
-              onClick={() => {
-                setShowAddProjectModal(true);
-                setNewProjectName('');
-              }}
-              className="p-1 hover:bg-gray-200 rounded transition-colors"
-              title="Add new project"
-            >
-              <Plus className="h-4 w-4 text-gray-600" />
-            </button>
-            )}
+            <div className="flex items-center gap-2 ml-auto">
+              {selectedYear && <span className="text-base font-bold text-gray-700">{selectedYear.year}</span>}
+              {userRole === 'admin' && (
+              <button
+                onClick={() => {
+                  setShowAddProjectModal(true);
+                  setNewProjectName('');
+                }}
+                className="p-1 hover:bg-gray-200 rounded transition-colors"
+                title="Add new project"
+              >
+                <Plus className="h-4 w-4 text-gray-600" />
+              </button>
+              )}
+            </div>
           </div>
 
           {/* Task Rows */}
