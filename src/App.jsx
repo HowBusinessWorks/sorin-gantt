@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, AlertCircle, Loader, Camera, MoreVertical, Archive, RotateCcw, Info } from 'lucide-react';
+import { Calendar, Search, Plus, X, Edit2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Loader, Camera, MoreVertical, Archive, RotateCcw, Info } from 'lucide-react';
 import { months, monthsShort, cellWidth, rowHeight, totalMonths, weeksPerMonth, totalWeeks } from './data.js';
 import { getProgressColor, getTotalMonths, getMonthName, getTotalWeeks, monthToWeekStart, monthDurationToWeeks, getWeekOfMonth, darkenColor } from './utils.js';
 import { supabase } from './supabaseClient.js';
@@ -97,12 +97,18 @@ function App() {
   // Comment tooltip on hover
   const [commentTooltip, setCommentTooltip] = useState(null); // { projectId, comments, loading, x, y }
 
+  // Subcontractor panel
+  const [showSubcontractorPanel, setShowSubcontractorPanel] = useState(false);
+  const [editingSubcontractorId, setEditingSubcontractorId] = useState(null);
+  const [editingSubcontractorText, setEditingSubcontractorText] = useState('');
+
   const currentTemplate = templates[templateKey] || templates[defaultTemplate];
 
   // Refs for synchronized scrolling
   const sidebarRef = useRef(null);
   const timelineRef = useRef(null);
   const chartContainerRef = useRef(null);
+  const subcontractorRef = useRef(null);
   const isHeaderChangeRef = useRef(false);
   const commentTooltipTimerRef = useRef(null);
 
@@ -215,6 +221,7 @@ function App() {
           color: project.color || '#3B82F6', // Default blue
           progress: project.progress,
           show_progress: project.show_progress !== false,
+          subcontractor: project.subcontractor || '',
           sortOrder: project.sort_order,
           stages: (project.stages || []).map(stage => ({
             id: stage.id,
@@ -277,6 +284,8 @@ function App() {
       if (timelineRef.current && !timelineRef.current.isScrolling) {
         sidebarRef.current.isScrolling = true;
         timelineRef.current.scrollTop = e.target.scrollTop;
+        const subEl = subcontractorRef.current?.querySelector('.subcontractor-scroll');
+        if (subEl) subEl.scrollTop = e.target.scrollTop;
         setTimeout(() => {
           sidebarRef.current.isScrolling = false;
         }, 10);
@@ -290,6 +299,8 @@ function App() {
         if (sidebarScrollElement) {
           sidebarScrollElement.scrollTop = e.target.scrollTop;
         }
+        const subEl = subcontractorRef.current?.querySelector('.subcontractor-scroll');
+        if (subEl) subEl.scrollTop = e.target.scrollTop;
         setTimeout(() => {
           timelineRef.current.isScrolling = false;
         }, 10);
@@ -765,6 +776,7 @@ function App() {
         color: project.color || '#3B82F6',
         progress: project.progress,
         show_progress: project.show_progress !== false,
+        subcontractor: project.subcontractor || '',
         sortOrder: project.sort_order,
         stages: (project.stages || []).map(stage => ({
           id: stage.id,
@@ -1084,6 +1096,22 @@ function App() {
     } catch (err) {
       console.error('Error deleting link:', err);
       setError('Failed to delete link');
+    }
+  };
+
+  // Save subcontractor text for a project
+  const handleSaveSubcontractor = async (taskId, text) => {
+    setEditingSubcontractorId(null);
+    setTasks(prevTasks =>
+      prevTasks.map(t => t.id === taskId ? { ...t, subcontractor: text } : t)
+    );
+    try {
+      await supabase
+        .from('projects')
+        .update({ subcontractor: text || null })
+        .eq('id', taskId);
+    } catch (err) {
+      console.error('Error saving subcontractor:', err);
     }
   };
 
@@ -2072,6 +2100,88 @@ function App() {
             onMouseDown={() => setResizingSidebar(true)}
           />
         </div>
+
+        {/* Subcontractor Panel Toggle Arrow */}
+        <div className="flex-shrink-0 flex flex-col bg-gray-50 border-r border-gray-200" style={{ width: 18 }}>
+          <button
+            onClick={() => setShowSubcontractorPanel(p => !p)}
+            className="w-full flex items-center justify-center hover:bg-blue-50 transition-colors border-b border-gray-200 flex-shrink-0"
+            style={{ height: 48 }}
+            title={showSubcontractorPanel ? 'Ascunde subcontractanți' : 'Arată subcontractanți'}
+          >
+            {showSubcontractorPanel
+              ? <ChevronLeft className="h-3 w-3 text-blue-500" />
+              : <ChevronRight className="h-3 w-3 text-gray-500" />
+            }
+          </button>
+        </div>
+
+        {/* Subcontractor Panel */}
+        {showSubcontractorPanel && (
+          <div
+            ref={subcontractorRef}
+            className="flex-shrink-0 bg-white border-r border-gray-200 flex flex-col"
+            style={{ width: 200 }}
+          >
+            {/* Header */}
+            <div className="bg-gray-100 border-b border-gray-200 flex items-center justify-center px-2 flex-shrink-0" style={{ height: 48 }}>
+              <span className="text-xs font-semibold text-gray-700 truncate">Subcontractanți</span>
+            </div>
+
+            {/* Rows */}
+            <div className="overflow-y-auto flex-1 subcontractor-scroll">
+              {!loading && filteredTasks.map((task) => (
+                <div key={task.id}>
+                  {/* Main row */}
+                  <div
+                    className="border-b border-gray-100 flex items-center px-2"
+                    style={{ height: rowHeight }}
+                  >
+                    {editingSubcontractorId === task.id ? (
+                      <input
+                        type="text"
+                        value={editingSubcontractorText}
+                        onChange={(e) => setEditingSubcontractorText(e.target.value)}
+                        onBlur={() => handleSaveSubcontractor(task.id, editingSubcontractorText)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveSubcontractor(task.id, editingSubcontractorText);
+                          if (e.key === 'Escape') setEditingSubcontractorId(null);
+                        }}
+                        autoFocus
+                        className="w-full text-xs px-1 py-0.5 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <div
+                        onClick={() => {
+                          if (userRole === 'admin') {
+                            setEditingSubcontractorId(task.id);
+                            setEditingSubcontractorText(task.subcontractor || '');
+                          }
+                        }}
+                        className={`w-full text-xs truncate ${userRole === 'admin' ? 'cursor-text hover:bg-gray-50 rounded px-1 py-0.5' : 'px-1'}`}
+                        title={task.subcontractor || ''}
+                      >
+                        {task.subcontractor
+                          ? <span className="text-gray-800">{task.subcontractor}</span>
+                          : <span className="text-gray-300 italic">{userRole === 'admin' ? 'click pentru editare' : '—'}</span>
+                        }
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stage spacer rows */}
+                  {expandedTasks[task.id] && task.stages.map((stage) => (
+                    <div
+                      key={stage.id}
+                      className="border-b border-gray-50 bg-gray-25"
+                      style={{ height: 24 }}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Timeline Section */}
         {!loading && (
