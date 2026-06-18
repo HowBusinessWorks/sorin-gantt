@@ -11,3 +11,15 @@ select option {
   background-color: #1f2937;
   color: #ffffff;
 }
+
+/* Hide scrollbars on sidebar and subcontractor panel */
+.sidebar-scroll::-webkit-scrollbar,
+.subcontractor-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar-scroll,
+.subcontractor-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}

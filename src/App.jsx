@@ -248,7 +248,9 @@ function App() {
 
   // Computed values
   const filteredTasks = tasks.filter(task => {
-    const matchesSearch = task.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const term = searchTerm.toLowerCase();
+    const matchesSearch = task.name.toLowerCase().includes(term) ||
+      (task.subcontractor || '').toLowerCase().includes(term);
     const taskEnd = task.startMonth + task.duration - 1;
     const matchesDate = !(taskEnd < dateFilter.startMonth || task.startMonth > dateFilter.endMonth);
     return matchesSearch && matchesDate;
