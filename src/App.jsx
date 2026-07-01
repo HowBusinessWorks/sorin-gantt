@@ -282,46 +282,39 @@ function App() {
 
   // Synchronized scrolling
   useEffect(() => {
-    const handleSidebarScroll = (e) => {
-      if (timelineRef.current && !timelineRef.current.isScrolling) {
-        sidebarRef.current.isScrolling = true;
-        timelineRef.current.scrollTop = e.target.scrollTop;
-        const subEl = subcontractorRef.current?.querySelector('.subcontractor-scroll');
-        if (subEl) subEl.scrollTop = e.target.scrollTop;
-        setTimeout(() => {
-          sidebarRef.current.isScrolling = false;
-        }, 10);
-      }
+    const sidebarScrollEl = sidebarRef.current?.querySelector('.sidebar-scroll');
+    const timelineEl = timelineRef.current;
+    const subcontractorEl = subcontractorRef.current?.querySelector('.subcontractor-scroll');
+
+    const syncScroll = (source, top) => {
+      if (sidebarScrollEl && sidebarScrollEl !== source) sidebarScrollEl.scrollTop = top;
+      if (timelineEl && timelineEl !== source) timelineEl.scrollTop = top;
+      if (subcontractorEl && subcontractorEl !== source) subcontractorEl.scrollTop = top;
     };
 
-    const handleTimelineScroll = (e) => {
-      if (sidebarRef.current && !sidebarRef.current.isScrolling) {
-        timelineRef.current.isScrolling = true;
-        const sidebarScrollElement = sidebarRef.current.querySelector('.sidebar-scroll');
-        if (sidebarScrollElement) {
-          sidebarScrollElement.scrollTop = e.target.scrollTop;
-        }
-        const subEl = subcontractorRef.current?.querySelector('.subcontractor-scroll');
-        if (subEl) subEl.scrollTop = e.target.scrollTop;
-        setTimeout(() => {
-          timelineRef.current.isScrolling = false;
-        }, 10);
-      }
+    let isSyncing = false;
+
+    const makeHandler = (source) => (e) => {
+      if (isSyncing) return;
+      isSyncing = true;
+      syncScroll(source, e.target.scrollTop);
+      setTimeout(() => { isSyncing = false; }, 10);
     };
 
-    const sidebarScrollElement = sidebarRef.current?.querySelector('.sidebar-scroll');
-    const timelineScrollElement = timelineRef.current;
+    const sidebarHandler = makeHandler(sidebarScrollEl);
+    const timelineHandler = makeHandler(timelineEl);
+    const subcontractorHandler = makeHandler(subcontractorEl);
 
-    if (sidebarScrollElement && timelineScrollElement) {
-      sidebarScrollElement.addEventListener('scroll', handleSidebarScroll);
-      timelineScrollElement.addEventListener('scroll', handleTimelineScroll);
+    if (sidebarScrollEl) sidebarScrollEl.addEventListener('scroll', sidebarHandler);
+    if (timelineEl) timelineEl.addEventListener('scroll', timelineHandler);
+    if (subcontractorEl) subcontractorEl.addEventListener('scroll', subcontractorHandler);
 
-      return () => {
-        sidebarScrollElement.removeEventListener('scroll', handleSidebarScroll);
-        timelineScrollElement.removeEventListener('scroll', handleTimelineScroll);
-      };
-    }
-  }, [filteredTasks]);
+    return () => {
+      if (sidebarScrollEl) sidebarScrollEl.removeEventListener('scroll', sidebarHandler);
+      if (timelineEl) timelineEl.removeEventListener('scroll', timelineHandler);
+      if (subcontractorEl) subcontractorEl.removeEventListener('scroll', subcontractorHandler);
+    };
+  }, [filteredTasks, showSubcontractorPanel]);
 
   // Task click handler
   const handleTaskClick = async (task) => {

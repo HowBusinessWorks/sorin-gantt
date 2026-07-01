@@ -12,5 +12,8 @@
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "supabase"
+  ],
+  "disabledMcpjsonServers": [
+    "supabase"
   ]
 }
